@@ -202,10 +202,11 @@ void SubproblemSolver::updateReducedCostsMatrix()
 								GRBConstr myConstr = cit->second;
 								//get shadow price
 								double pi = myConstr.get(GRB_DoubleAttr_Pi);
-								reducedCosts[o->getJob()][d->getJob()][o->getTime()] = pi * -1;
+								reducedCosts[o->getJob()][d->getJob()][o->getTime()] = pi;
 							}
 						}
 					}
+					myQueue.push(d);
 				}
 			}
 			myQueue.pop();

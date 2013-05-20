@@ -13,7 +13,10 @@ LPSolver::LPSolver(ProblemData *d) : data(d)
 {
 	//Create Gurobi enviroment and model
 	env = new GRBEnv();
+	env->set(GRB_IntParam_Presolve,GRB_PRESOLVE_OFF);
 	model = new GRBModel(*env);
+
+	
 
 	//Objective function value of auxiliary variables
 	bigM = 10000;
