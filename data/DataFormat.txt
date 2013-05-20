@@ -1,0 +1,27 @@
+#Machines
+number_of_machine_types	
+#for each machine type:
+  id number_of_machines max_transition_time capacity
+
+#Locations
+number_of_locations
+#for each location
+  id x_coordinate y_coordinate 
+
+#TimeScale
+horizon_length
+number_of_workshifts
+
+#Jobs
+number_of_jobs
+#for each job
+  id weight processing_time location_id demand vector_of_machine_requirements number_of_workshifts 
+  #for each workshift
+    workshift_number release_date due_date
+
+#####ITEMS BELOW ARE NOT IMPLEMENTED YET########
+#Precedences
+number_of_precedences
+#for each precedence
+  job_i job_j delta
+ 

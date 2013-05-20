@@ -1,0 +1,99 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Resource Files\Input">
+      <UniqueIdentifier>{4e3bd227-b2ee-4d67-910d-38a9a67f80ce}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Input">
+      <UniqueIdentifier>{af7dca93-515f-4100-a226-c0e3c10843c5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Solver">
+      <UniqueIdentifier>{4ac07b1f-8741-4d55-b9c0-91edba8e25ad}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\Solver">
+      <UniqueIdentifier>{2f4223d7-6845-43be-a96a-18b19ada9954}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\Utils">
+      <UniqueIdentifier>{97099606-bac4-4bf3-b687-87cd75d65061}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Utils">
+      <UniqueIdentifier>{4d81412c-280f-4346-8861-8be54ffa4f4a}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Job.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Data.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Bucket.cpp">
+      <Filter>Source Files\Solver</Filter>
+    </ClCompile>
+    <ClCompile Include="LPSolver.cpp">
+      <Filter>Source Files\Solver</Filter>
+    </ClCompile>
+    <ClCompile Include="SubproblemSolver.cpp">
+      <Filter>Source Files\Solver</Filter>
+    </ClCompile>
+    <ClCompile Include="Variable.cpp">
+      <Filter>Source Files\Solver</Filter>
+    </ClCompile>
+    <ClCompile Include="Constraint.cpp">
+      <Filter>Source Files\Solver</Filter>
+    </ClCompile>
+    <ClCompile Include="HashUtil.cpp">
+      <Filter>Source Files\Utils</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Data.h">
+      <Filter>Resource Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Equipment.h">
+      <Filter>Resource Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Job.h">
+      <Filter>Resource Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Location.h">
+      <Filter>Resource Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Bucket.h">
+      <Filter>Resource Files\Solver</Filter>
+    </ClInclude>
+    <ClInclude Include="LPSolver.h">
+      <Filter>Resource Files\Solver</Filter>
+    </ClInclude>
+    <ClInclude Include="SubproblemSolver.h">
+      <Filter>Resource Files\Solver</Filter>
+    </ClInclude>
+    <ClInclude Include="Route.h">
+      <Filter>Resource Files\Solver</Filter>
+    </ClInclude>
+    <ClInclude Include="Constraint.h">
+      <Filter>Resource Files\Solver</Filter>
+    </ClInclude>
+    <ClInclude Include="Variable.h">
+      <Filter>Resource Files\Solver</Filter>
+    </ClInclude>
+    <ClInclude Include="HashUtil.h">
+      <Filter>Resource Files\Utils</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
