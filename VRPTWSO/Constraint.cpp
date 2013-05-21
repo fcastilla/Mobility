@@ -8,11 +8,13 @@ using namespace std;
 
 Constraint::Constraint()
 {
+	rank = 0;
 	reset();
 }
 
 Constraint::Constraint(const Constraint &cons)
 {
+	rank = 0;
 	*this = cons;
 }
 

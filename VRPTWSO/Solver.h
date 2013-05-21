@@ -8,13 +8,14 @@
 using namespace std;
 
 class SubproblemSolver;
+class Node;
 class Route;
 
-class LPSolver
+class Solver
 {
 public:
-	LPSolver(ProblemData *d);
-	~LPSolver();
+	Solver(ProblemData *d);
+	~Solver();
 
 	//Model object and enviroment
 	GRBEnv *env;
@@ -37,7 +38,9 @@ private:
 
 	//Statistics
 	int routeCounter;
+	int totalNodes;
 	int exploredNodes;
+	Node* bestSolution;
 
 	//Subproblem related
 	vector<SubproblemSolver*> spSolvers;
@@ -45,9 +48,8 @@ private:
 	//Methods
 	void buildProblemNetwork();
 	void buildInitialModel();
-	void fixByRC();	
 	void collapseSubproblemVertices();
 	
 	int BaP();
-	int solveCurrentLPByColumnGeneration();
+	int solveLPByColumnGeneration();
 };

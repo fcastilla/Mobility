@@ -1,11 +1,11 @@
 #include "gurobi_c++.h"
 #include "SubproblemSolver.h"
-#include "LPSolver.h"
+#include "Solver.h"
 #include "Variable.h"
 #include "Constraint.h"
 #include <queue>
 
-SubproblemSolver::SubproblemSolver(LPSolver *mPtr, ProblemData *d, int e, SubproblemType m) : master(mPtr), data(d), eqType(e), method(m)
+SubproblemSolver::SubproblemSolver(Solver *mPtr, ProblemData *d, int e, SubproblemType m) : master(mPtr), data(d), eqType(e), method(m)
 {
 	infinityValue = 1e13;
 	totalJobs = data->numJobs;

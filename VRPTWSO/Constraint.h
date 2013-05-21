@@ -12,7 +12,8 @@ enum ConstraintType
    C_COVER,
    C_SYNCH,
    C_CARD,
-   C_EXPLICIT
+   C_EXPLICIT,
+   C_BRANCH
 };
 
 /**
@@ -52,6 +53,8 @@ public:
 
    std::string toString();
 
+   int rank;
+
 private:
 	ConstraintType type;
 	int sJob, eJob;
@@ -70,7 +73,15 @@ public:
    bool operator() (const Constraint& cons1, const Constraint& cons2) const;
 };
 
+class ConstraintRankComparator
+{
+public:
+    bool operator()(const Constraint& c1, const Constraint& c2){
+        return c1.rank < c2.rank;
+    }
+}consRankComparator;
+
 /**
 * Type definition for the hash object.
 */
-typedef stdext::hash_map<Constraint, GRBConstr, ConstraintHasher> ConstraintHash;
+typedef stdext::hash_map<Constraint, bool, ConstraintHasher> ConstraintHash;

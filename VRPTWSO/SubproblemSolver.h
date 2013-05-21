@@ -13,13 +13,13 @@ enum SubproblemType
 	NGROUTE
 };
 
-class LPSolver;
+class Solver;
 
 class SubproblemSolver
 {
 	
 public:
-	SubproblemSolver(LPSolver *mPtr, ProblemData * d, int e, SubproblemType m);
+	SubproblemSolver(Solver *mPtr, ProblemData * d, int e, SubproblemType m);
 	~SubproblemSolver();
 
 	vector<Route*> routes;
@@ -31,7 +31,7 @@ public:
 	void solve();
 
 private:
-	LPSolver *master;
+	Solver *master;
 	ProblemData * data;
 	int eqType;
 	SubproblemType method;

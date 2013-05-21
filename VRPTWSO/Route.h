@@ -17,10 +17,12 @@ public:
 	vector<Edge*> edges;
 
 	//GET METHODS
+	int getRouteNumber(){ return routeNumber; }
 	int getEquipmentType(){ return eqType; }
 	double getCost(){ return cost; }
 
 	//SET METHODS
+	void setRouteNumber(int num){ routeNumber = num; }
 	void setCost(double c){ cost = c; }
 
 	//OTHER
@@ -37,6 +39,7 @@ public:
 	}
 
 private:
+	int routeNumber;
 	int eqType;
 	double cost;
 };

@@ -9,12 +9,18 @@ using namespace std;
 Variable::Variable()
 {
 	value = new double();
+	rank = 0;
+	fractionality = 0;
+	score = 0;
 	reset();
 }
 
 Variable::Variable(const Variable& var)
 {
 	value = new double();
+	rank = 0;
+	fractionality = 0;
+	score = 0;
 	*this = var;
 }
 

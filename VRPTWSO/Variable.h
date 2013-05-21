@@ -59,6 +59,11 @@ public:
 	//Variable name
 	std::string toString();
 
+	//Other members
+	int rank;
+	double fractionality;
+	double score;
+
 private:
 	VariableType type;
 	double *value;
@@ -79,8 +84,32 @@ public:
 	size_t operator()(const Variable& v) const;
 };
 
+class VariableRankComparator
+{
+public:
+    bool operator()(const Variable& v1, const Variable& v2){
+        return v1.rank < v2.rank;
+    }
+}varRankComparator;
+
+class VariableFractionalityComparator
+{
+public:
+    bool operator()(const Variable& v1, const Variable& v2){
+        return v1.fractionality < v2.fractionality;
+    }
+}varFractionalityComparator;
+
+class VariableScoreComparator
+{
+public:
+    bool operator()(const Variable& v1, const Variable& v2){
+        return v1.score < v2.score;
+    }
+}varScoreComparator;
+
 /**
 * Type definition for the hash object.
 */
-typedef stdext::hash_map<Variable, GRBVar, VariableHasher> VariableHash;
+typedef stdext::hash_map<Variable, bool, VariableHasher> VariableHash;
 

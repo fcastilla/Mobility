@@ -1,4 +1,4 @@
-#include "LPSolver.h"
+#include "Solver.h"
 #include "SubproblemSolver.h"
 #include "Bucket.h"
 #include "Route.h"
@@ -9,11 +9,11 @@
 
 string itos(int i) {stringstream s; s << i; return s.str(); }
 
-LPSolver::LPSolver(ProblemData *d) : data(d)
+Solver::Solver(ProblemData *d) : data(d)
 {
 	//Create Gurobi enviroment and model
 	env = new GRBEnv();
-	env->set(GRB_IntParam_Presolve,GRB_PRESOLVE_OFF);
+	//env->set(GRB_IntParam_Presolve,GRB_PRESOLVE_OFF);
 	model = new GRBModel(*env);
 
 	
@@ -27,7 +27,7 @@ LPSolver::LPSolver(ProblemData *d) : data(d)
 	
 }
 
-LPSolver::~LPSolver()
+Solver::~Solver()
 {
 	//Destroy vector of subproblem solvers
 	spSolvers.clear();
@@ -42,7 +42,7 @@ LPSolver::~LPSolver()
 	delete env;
 }
 
-int LPSolver::solve()
+int Solver::solve()
 {
 	//Build problem graph representation
 	buildProblemNetwork();
@@ -61,7 +61,7 @@ int LPSolver::solve()
 	return status;
 }
 
-void LPSolver::buildInitialModel()
+void Solver::buildInitialModel()
 {
 	//----------------
 	//CREATE VARIABLES
@@ -295,7 +295,7 @@ void LPSolver::buildInitialModel()
 	model->write("modelo.lp");
 }
 
-int LPSolver::solveCurrentLPByColumnGeneration()
+int Solver::solveCurrentLPByColumnGeneration()
 {
 	int status = GRB_INPROGRESS;
 
@@ -405,7 +405,7 @@ int LPSolver::solveCurrentLPByColumnGeneration()
 	return status;
 }
 
-int LPSolver::BaP()
+int Solver::BaP()
 {
 	//TODO: implement Branch and Price method.
 	int result = solveCurrentLPByColumnGeneration();
@@ -413,7 +413,7 @@ int LPSolver::BaP()
 	return result;
 }
 
-void LPSolver::buildProblemNetwork()
+void Solver::buildProblemNetwork()
 {
 	Vertex *s, *d;
 	queue<Vertex*> myQueue;

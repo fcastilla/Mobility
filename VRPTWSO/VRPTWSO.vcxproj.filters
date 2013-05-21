@@ -60,6 +60,9 @@
     <ClCompile Include="HashUtil.cpp">
       <Filter>Source Files\Utils</Filter>
     </ClCompile>
+    <ClCompile Include="Node.cpp">
+      <Filter>Source Files\Solver</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Data.h">
@@ -94,6 +97,9 @@
     </ClInclude>
     <ClInclude Include="HashUtil.h">
       <Filter>Resource Files\Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="Node.h">
+      <Filter>Resource Files\Solver</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

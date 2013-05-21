@@ -1,34 +1,33 @@
 ORGANIZAR CLASES
 
 Clase Solver
-	- Comparator de variaveis por fractionality
-	- Comparator de variaveis por Rank
-	- Comparator de variaveis por score.
-	- Crear rede do problema
-	- Crear modelo inicial
-	- Crear subproblem solvers
-	- Crear parametros globales:
-		- ZInc = infinity
-		- processedNodes = 0
-		- vector<Node*> solutions;
-	- Crear rootNode
-		- pasar el modelo inicial
-		- vHash e cHash
-	status = BAP(rootNode);
-	return status;
+	
+	METODO SOLVE{
+		- Crear rede do problema
+		- Crear modelo inicial
+		- Crear subproblem solvers
+		- Crear parametros globales:
+			- ZInc = infinity
+			- processedNodes = 0
+			- vector<Node*> solutions;
+			- routeNumber;
+		- Crear rootNode
+			- pasar el modelo inicial
+			- vHash e cHash
+		status = BAP(rootNode);
+		return status;
+	}END SOLVE
 	
 	METODO SolveByCG(*node){
 		end = false;
 		node->resetVarRank();
 		
 		ENQUANTO QUE(!end)
-			cgStatus = node->getModel()->solve;
+			cgStatus = node->solve();
 			SE(cgStatus != OPTIMAL)
 				RETURN INFEASIBLE.
 			FIM SE
-			
-			node->updateVarRank();
-			
+						
 			sw = 0
 			PARA CADA TIPO DE EQUIPAMENTO
 				newRoutes = sp->generateColumns(node->getModel(), eqType)
@@ -39,6 +38,7 @@ Clase Solver
 			PARA CADA ROTA
 				//Adicionar variavel dual faltante custo da rota
 				SE rota.custo >= 0 CONTINUE
+				rota->setRouteNumber(routeNumber++);
 				bools sucess = node->addColumn(rota);
 				SE success
 					sw = 1;
@@ -93,16 +93,8 @@ Clase Solver
 			nodeIzq = new Node(node); //copia
 			nodeDer = new Node(node); //copia
 			
-			!!!OJO CON REFERENCIAS DE OBJETOS AQUI
-			varSet = new Set<Variable, varComparator>();
-			PARA CADA Variavel do vHash
-				Atualizar solution value da variavel
-				Atualizar fractionality da variavel
-				adicionar a variavel ao varSet (com custom comparator por fractionality)
-			FIM PARA
-			
 			//BRANCHING SIMPLES
-			Variable branchV = primeira variavel do set.				
+			Variable branchV = node->getMostFractional();				
 			
 			//STRONG BRANCHING
 			NOT YET
@@ -117,14 +109,19 @@ Clase Solver
 	}FIM METODO BAP
 				
 Class Variavel
-	- Adicionar campo rank.
-	- Adicionar campo fractionality.
-	- Adicionar campo score
-	- Modificar Hash <Variable, bool>
+	- Adicionar campo rank. //OK
+	- Adicionar campo fractionality. //OK
+	- Adicionar campo score //OK
+	- Modificar Hash <Variable, bool> //OK
+	- Comparator de variaveis por fractionality //OK
+	- Comparator de variaveis por Rank //OK
+	- Comparator de variaveis por score. //OK
 
 Class Constraint
-	- Adicionar campo rank
-	- Modificar Hash <Constraint, bool>
+	- Crear tipo BRANCH //OK
+	- Adicionar campo rank //OK
+	- Modificar Hash <Constraint, bool> //OK
+	- Comparator de variaveis por Rank //OK
 	
 Class NODE
 	- Construtor Padrão
@@ -141,7 +138,42 @@ Class NODE
 	- Routes.
 	- Zlp
 	
-	METODO ADDCOLUMN(rota){
+	METODO SOLVE(){ //OK
+		int status = model->solve();
+		if(status != OPTIMAL)
+			return status
+			
+		updateVariables();		
+		return status;
+	}
+	
+	METODO UPDATE VARIABLES(){ //OK
+		PARA CADA Var no vHash
+			SE NÃO Variavel na base
+				Variavel.rank ++;
+			FIM SE
+			Variavel.value = model->getVarByName....
+			Variable.fractionality = abs(value - 0.5);
+		FIM PARA
+	}
+	
+	METODO GETMOSTFRACTIONAL(){ //OK
+		mostFractional = (*vHash.begin())->first;
+		PARA CADA Var do vHash
+			if var.fractionality < mostFracional.fractionality
+				mostFractional = var
+			end if
+		FIM PARA
+		return mostFracional;		
+	}
+	
+	METODO ADDBRANCHCONSTRAINT(Variable v, double rhs){ //OK
+		GRBVar var = ....
+		GRBLinExpr expre += var;
+		model->addConstr...
+	}
+	
+	METODO ADDCOLUMN(rota){ //OK
 		Criar Variable lambda
 		SE lambda não existe no vHash
 			criar variavel lambda no modelo
@@ -152,21 +184,7 @@ Class NODE
 		FIM SE
 	}
 	
-	METODO UPDATE VAR RANK{
-		PARA CADA VARIAVEL DO MODELO
-			SE NÃO Variavel na base
-				Variavel.rank ++;
-			FIM SE
-		FIM PARA
-	}FIM UPDATE VAR RANK
-	
-	METODO RESET VAR RANK{
-		PARA CADA VARIAVEL DO MODELO
-			Variavel.rank = 0;
-		FIM PARA
-	}FIM UPDATE VAR RANK
-	
-	METODO FIX BY REDUCED COSTS(max){
+	METODO FIX BY REDUCED COSTS(max){ //OK
 		PARA CADA Variavel Y e X no vHAsh
 			myVar = model->getVar()
 			rc = myVar->getReducedCost();
@@ -185,16 +203,14 @@ Class NODE
 			FIM SE
 		FIM PARA
 		
-		SE cont < max
-			PARA CADA LAMBDA EM VARS (ORDENADAS POR RANK)
-				SE cont < max 
-					cont ++ 
-				ELSE
-					apagar lambda do node-model;
-					apagar lambda do node->vHash
-				FIM SE
-			FIM PARA
-		FIM SE
+		PARA CADA LAMBDA EM VARS (ORDENADAS POR RANK)
+			SE cont < max 
+				cont ++ 
+			ELSE
+				apagar lambda do node-model;
+				apagar lambda do node->vHash
+			FIM SE
+		FIM PARA
 	}FIM CLEAN
 	
 - Subproblem Solver
