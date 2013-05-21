@@ -388,7 +388,7 @@ int LPSolver::solveCurrentLPByColumnGeneration()
 
 						//Update the model to include new column
 						model->update();
-						model->write("modelo.lp");
+						//model->write("modelo.lp");
 						routeCounter++;
 						cont++;
 					}

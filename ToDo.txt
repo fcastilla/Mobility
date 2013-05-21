@@ -1,0 +1,200 @@
+ORGANIZAR CLASES
+
+Clase Solver
+	- Comparator de variaveis por fractionality
+	- Comparator de variaveis por Rank
+	- Comparator de variaveis por score.
+	- Crear rede do problema
+	- Crear modelo inicial
+	- Crear subproblem solvers
+	- Crear parametros globales:
+		- ZInc = infinity
+		- Solutions?
+	- Crear rootNode
+		- pasar el modelo inicial
+		- vHash e cHash
+	status = BAP(rootNode);
+	return status;
+	
+	METODO SolveByCG(*node){
+		end = false;
+		node->resetVarRank();
+		
+		ENQUANTO QUE(!end)
+			cgStatus = node->getModel()->solve;
+			SE(cgStatus != OPTIMAL)
+				RETURN INFEASIBLE.
+			FIM SE
+			
+			node->updateVarRank();
+			
+			sw = 0
+			PARA CADA TIPO DE EQUIPAMENTO
+				newRoutes = sp->generateColumns(node->getModel(), eqType)
+				SE sp.infeasible 
+					RETURN INFEASIBLE
+				FIM SE
+			FIM PARA
+			PARA CADA ROTA
+				//Adicionar variavel dual faltante custo da rota
+				SE rota.custo >= 0 CONTINUE
+				node->addColumn(rota);
+				sw = 1;
+			FIM PARA
+			
+			SE sw == 0
+				end = true
+			FIM SE
+		FIM ENQUANTO QUE
+		
+		RETURN OTIMO
+	}FIM SolveByCG
+	
+	METODO BAP(*rootNode){
+		pilha.push(rootNode);
+		EM QUANTO QUE  pilha.size() > 0
+			node = pilha.top;
+			pilha.pop
+			
+			status = solveByCG(node)	
+			
+			sw = 0
+			SE status != Optimal 
+				delete(node)
+				sw = 1
+			ELSE
+				Zlp = node->model->getObjVal
+				SE SOLUÇÃO X INTEIRA
+					SE ZInc > Zlp
+						Guardar solução
+						Zinc = Zlp
+					FIM SE
+					sw = 1
+				ELSE IF (Ceil(Zlp) >= Zinc)
+					delete(node)
+					sw = 1;
+				FIM SE
+			FIM SE
+			
+			IF sw == 1 CONTINUE
+			
+			maxRotas = 200;
+			node->clean(maxRotas)
+				
+			maxRC = ZInc - Zlp
+			node->fixByReducedCosts(maxRC)					
+				
+			nodeIzq = new Node(node); //copia
+			nodeDer = new Node(node); //copia
+			
+			!!!OJO CON REFERENCIAS DE OBJETOS AQUI
+			varSet = new Set<Variable, varComparator>();
+			PARA CADA Variavel do vHash
+				Atualizar solution value da variavel
+				Atualizar fractionality da variavel
+				adicionar a variavel ao varSet (com custom comparator por fractionality)
+			FIM PARA
+			
+			//BRANCHING SIMPLES
+			Variable branchV = primeira variavel do set.				
+			
+			//STRONG BRANCHING
+			NOT YET
+			
+			nodeIzq->addBranchRestriction(branchV, 0);
+			nodeIzq->addBranchRestriction(branchV, 1);
+			
+			pilha.push(nodeIzq);
+			pilha.push(nodeDer);				
+		FIM ENQUANTO QUE
+	}FIM METODO BAP
+				
+Class Variavel
+	- Adicionar campo rank.
+	- Adicionar campo fractionality.
+	- Adicionar campo score
+	- Modificar Hash <Variable, bool>
+
+Class Constraint
+	- Adicionar campo rank
+	- Modificar Hash <Constraint, bool>
+	
+Class NODE
+	- Construtor Padrão
+	- Construtor (Node) //clona um node, FAZER COPIA
+	- Destrutor
+		- Apagar vHash, cHash, model e rotas.
+		
+	- *model
+	- Var hash	(não tem referencia à variavel do modelo, so nome)
+		- Necessaria para percorrer variaveis para fazer node cleaning.
+	- Constr hash (não tem referencia a variavel do model, so nome)
+		- Guardar inteiro (Rank) (possivel uso futuro, adicionar e tirar cortes).
+	- Routes.
+	- Zlp
+	
+	METODO ADDCOLUMN(rota){
+		Criar Variable lambda
+		SE lambda não existe no vHash
+			criar variavel lambda no modelo
+			adicionar variavel lambda ao vHash
+			inserir coluna (coeficientes)
+			node.Routes += route
+			sw = 1
+		FIM SE
+	}
+	
+	METODO UPDATE VAR RANK{
+		PARA CADA VARIAVEL DO MODELO
+			SE NÃO Variavel na base
+				Variavel.rank ++;
+			FIM SE
+		FIM PARA
+	}FIM UPDATE VAR RANK
+	
+	METODO RESET VAR RANK{
+		PARA CADA VARIAVEL DO MODELO
+			Variavel.rank = 0;
+		FIM PARA
+	}FIM UPDATE VAR RANK
+	
+	METODO FIX BY REDUCED COSTS(max){
+		PARA CADA Variavel Y e X no vHAsh
+			myVar = model->getVar()
+			rc = myVar->getReducedCost();
+			SE rc >= max ENTÃO
+				apagar variavel do modelo
+				apagar variavel do vHash
+			FIM SE
+		FIM PARA					
+	}END FIX BY RC
+	
+	METODO CLEAN(max){
+		cont = 0
+		PARA CADA LAMBDA
+			SE lambda esta na base ENTÃO
+				cont++
+			FIM SE
+		FIM PARA
+		
+		SE cont < max
+			PARA CADA LAMBDA EM VARS (ORDENADAS POR RANK)
+				SE cont < max 
+					cont ++ 
+				ELSE
+					apagar lambda do node-model;
+					apagar lambda do node->vHash
+				FIM SE
+			FIM PARA
+		FIM SE
+	}FIM CLEAN
+	
+- Subproblem Solver
+	- Recibir modelo master e tipo de equipamento em metodo solve.
+	- Retornar rota(s) sem importar custo reduzido.
+				
+		
+DUDAS
+1) restrição de branching como corte ou lb/ub???
+	- Revição de fixação em subproblema.
+4) Quais estatisticas guardar?
