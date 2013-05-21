@@ -9,7 +9,8 @@ Clase Solver
 	- Crear subproblem solvers
 	- Crear parametros globales:
 		- ZInc = infinity
-		- Solutions?
+		- processedNodes = 0
+		- vector<Node*> solutions;
 	- Crear rootNode
 		- pasar el modelo inicial
 		- vHash e cHash
@@ -38,8 +39,12 @@ Clase Solver
 			PARA CADA ROTA
 				//Adicionar variavel dual faltante custo da rota
 				SE rota.custo >= 0 CONTINUE
-				node->addColumn(rota);
-				sw = 1;
+				bools sucess = node->addColumn(rota);
+				SE success
+					sw = 1;
+				ELSE
+					print("Error: column " << rota.routeNumber << "," << rota.eqType << " already existed in node " << node.id);
+				FIM SE
 			FIM PARA
 			
 			SE sw == 0
@@ -55,6 +60,7 @@ Clase Solver
 		EM QUANTO QUE  pilha.size() > 0
 			node = pilha.top;
 			pilha.pop
+			node->id = processedNodes++;
 			
 			status = solveByCG(node)	
 			
@@ -66,7 +72,7 @@ Clase Solver
 				Zlp = node->model->getObjVal
 				SE SOLUÇÃO X INTEIRA
 					SE ZInc > Zlp
-						Guardar solução
+						solutions.push_back(node);
 						Zinc = Zlp
 					FIM SE
 					sw = 1
@@ -105,7 +111,8 @@ Clase Solver
 			nodeIzq->addBranchRestriction(branchV, 1);
 			
 			pilha.push(nodeIzq);
-			pilha.push(nodeDer);				
+			pilha.push(nodeDer);	
+			delete(node);
 		FIM ENQUANTO QUE
 	}FIM METODO BAP
 				
@@ -124,7 +131,8 @@ Class NODE
 	- Construtor (Node) //clona um node, FAZER COPIA
 	- Destrutor
 		- Apagar vHash, cHash, model e rotas.
-		
+	
+	- int Id
 	- *model
 	- Var hash	(não tem referencia à variavel do modelo, so nome)
 		- Necessaria para percorrer variaveis para fazer node cleaning.
