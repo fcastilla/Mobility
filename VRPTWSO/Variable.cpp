@@ -9,18 +9,18 @@ using namespace std;
 Variable::Variable()
 {
 	value = new double();
-	rank = 0;
-	fractionality = 0;
-	score = 0;
+	score = new double();
+	fractionality = new double();
+	rank = new int();
 	reset();
 }
 
 Variable::Variable(const Variable& var)
 {
 	value = new double();
-	rank = 0;
-	fractionality = 0;
-	score = 0;
+	score = new double();
+	fractionality = new double();
+	rank = new int();
 	*this = var;
 }
 
@@ -28,6 +28,9 @@ void Variable::reset()
 {
 	type = V_ERROR;
 	*value = -1.0;
+	*score = 0.0;
+	*fractionality = 1.0;
+	rank = 0;
 	sJob = -1;
 	eJob = -1;
 	time = -1; 
@@ -39,6 +42,9 @@ Variable::~Variable()
 {
 	reset();
 	delete value;
+	delete score;
+	delete fractionality;
+	delete rank;
 }
 
 Variable& Variable::operator=(const Variable& var)
@@ -89,7 +95,7 @@ bool Variable::operator <(const Variable& var) const
 	if(this->getRouteNum() < var.getRouteNum())
 		return true;
 	else if(this->getRouteNum() > var.getRouteNum()) 
-		return true;
+		return false;
 	
 	return false;
 }

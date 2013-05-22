@@ -28,7 +28,7 @@ public:
 	//OTHER
 	string toString(){ 
 		stringstream s;
-		s << "New Route - Cost: " << cost << " - Route: ";
+		s << "Route " << routeNumber << " - Cost: " << cost << " - Route: ";
 		vector<Edge*>::reverse_iterator it = edges.rbegin();
 		for(; it != edges.rend(); it++){
 			Edge *myEdge = (*it);			

@@ -59,11 +59,11 @@ public:
 	~Label(){ predecessor = nullptr; }
 
 	//GET METHODS
-	int getJob(){ return job; }
-	int getTime(){ return time; }
-	double getCost(){ return cost; }
+	int getJob() const { return job; }
+	int getTime() const { return time; }
+	double getCost() const { return cost; }
 	Label *getPredecessor(){ return predecessor; }
-	bool isFixed(){ return fixed; }
+	bool isFixed() const{ return fixed; }
 
 	//SET METHODS
 	void setJob(int j){ job = j; }
@@ -71,6 +71,8 @@ public:
 	void setCost(double c){ cost = c; }
 	void setPredecessor(Label * p){ predecessor = p; }
 	void setFixed(bool f){ fixed = f; }
+
+	bool operator<(const Label& other) const;
 
 private:
 	int job;

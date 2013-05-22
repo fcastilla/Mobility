@@ -35,6 +35,8 @@ public:
    int getEndJob() const { return eJob; }
    int getTime() const { return time; }
    int getEquipmentType() const { return eqType; }
+   
+   int getRank() const { return *rank; }
 
    // SET METHODS 
    void reset();
@@ -43,6 +45,8 @@ public:
    void setEndJob(int e){ eJob = e; }
    void setTime(int t){ time = t; }
    void setEquipmentType(int e){ eqType = e; }
+
+   void increaseRank(){ rank++; }
 
    /** Assign operator. */
    Constraint& operator= (const Constraint& cons);
@@ -53,7 +57,7 @@ public:
 
    std::string toString();
 
-   int rank;
+   
 
 private:
 	ConstraintType type;
@@ -61,6 +65,7 @@ private:
 	int time;
 	int eqType;
 
+	int *rank;
 };
 
 /**
@@ -77,9 +82,9 @@ class ConstraintRankComparator
 {
 public:
     bool operator()(const Constraint& c1, const Constraint& c2){
-        return c1.rank < c2.rank;
+        return c1.getRank() < c2.getRank();
     }
-}consRankComparator;
+};
 
 /**
 * Type definition for the hash object.

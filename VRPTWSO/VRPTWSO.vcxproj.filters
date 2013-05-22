@@ -45,9 +45,6 @@
     <ClCompile Include="Bucket.cpp">
       <Filter>Source Files\Solver</Filter>
     </ClCompile>
-    <ClCompile Include="LPSolver.cpp">
-      <Filter>Source Files\Solver</Filter>
-    </ClCompile>
     <ClCompile Include="SubproblemSolver.cpp">
       <Filter>Source Files\Solver</Filter>
     </ClCompile>
@@ -61,6 +58,9 @@
       <Filter>Source Files\Utils</Filter>
     </ClCompile>
     <ClCompile Include="Node.cpp">
+      <Filter>Source Files\Solver</Filter>
+    </ClCompile>
+    <ClCompile Include="Solver.cpp">
       <Filter>Source Files\Solver</Filter>
     </ClCompile>
   </ItemGroup>
@@ -80,9 +80,6 @@
     <ClInclude Include="Bucket.h">
       <Filter>Resource Files\Solver</Filter>
     </ClInclude>
-    <ClInclude Include="LPSolver.h">
-      <Filter>Resource Files\Solver</Filter>
-    </ClInclude>
     <ClInclude Include="SubproblemSolver.h">
       <Filter>Resource Files\Solver</Filter>
     </ClInclude>
@@ -99,6 +96,9 @@
       <Filter>Resource Files\Utils</Filter>
     </ClInclude>
     <ClInclude Include="Node.h">
+      <Filter>Resource Files\Solver</Filter>
+    </ClInclude>
+    <ClInclude Include="Solver.h">
       <Filter>Resource Files\Solver</Filter>
     </ClInclude>
   </ItemGroup>

@@ -8,19 +8,20 @@ using namespace std;
 
 Constraint::Constraint()
 {
-	rank = 0;
+	rank = new int();
 	reset();
 }
 
 Constraint::Constraint(const Constraint &cons)
 {
-	rank = 0;
+	rank = new int();
 	*this = cons;
 }
 
 Constraint::~Constraint()
 {
 	reset();
+	delete rank;
 }
 
 void Constraint::reset()

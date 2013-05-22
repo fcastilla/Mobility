@@ -1,25 +1,25 @@
 #include "gurobi_c++.h"
 #include "SubproblemSolver.h"
 #include "Solver.h"
+#include "Node.h"
 #include "Variable.h"
 #include "Constraint.h"
 #include <queue>
 
-SubproblemSolver::SubproblemSolver(Solver *mPtr, ProblemData *d, int e, SubproblemType m) : master(mPtr), data(d), eqType(e), method(m)
+SubproblemSolver::SubproblemSolver(ProblemData *d, SubproblemType m) : data(d), method(m)
 {
 	infinityValue = 1e13;
-	totalJobs = data->numJobs;
 
 	//Initialize fixatedVars vector
-	fixatedVars = vector<int>(totalJobs,0);	
+	fixatedVars = vector<int>(data->numJobs,0);	
 
 	//Initialize reduced costs matrix
-	reducedCosts = vector<vector<vector<double> > >(totalJobs, 
-		vector<vector<double> >(totalJobs, vector<double>(data->horizonLength + 1)));
+	reducedCosts = vector<vector<vector<double> > >(data->numJobs, 
+		vector<vector<double> >(data->numJobs, vector<double>(data->horizonLength + 1)));
 
 	//Initialize FMatrix
-	fMatrix = vector<vector<Bucket*> >(totalJobs, vector<Bucket*>(data->horizonLength + 1));
-	for(int j=0; j < totalJobs; j++){
+	fMatrix = vector<vector<Bucket*> >(data->numJobs, vector<Bucket*>(data->horizonLength + 1));
+	for(int j=0; j < data->numJobs; j++){
 		for(int t=0; t <= data->horizonLength; t++){
 			switch(method){
 				case QROUTE:
@@ -57,11 +57,13 @@ SubproblemSolver::~SubproblemSolver()
 
 void SubproblemSolver::reset()
 {
+	infeasible = false;
+
 	//reset reduced costs matrix and fMatrix
-	for(int j=0; j < totalJobs; j++){
+	for(int j=0; j < data->numJobs; j++){
 		for(int t=0; t <= data->horizonLength; t++){
 			fMatrix[j][t]->reset();
-			for(int i=0; i < totalJobs; i++){
+			for(int i=0; i < data->numJobs; i++){
 				reducedCosts[j][i][t] = 0;
 			}
 		}
@@ -71,7 +73,7 @@ void SubproblemSolver::reset()
 	routes.clear();
 }
 
-void SubproblemSolver::collapseVertices()
+void SubproblemSolver::collapseVertices(Node *node, int eqType)
 {
 	infeasible = false;
 	fixatedVars.clear();
@@ -82,7 +84,7 @@ void SubproblemSolver::collapseVertices()
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
 
-		//Make a DFS over the problem network
+		//Make a BFS over the problem network
 		Vertex *o, *d;
 		vector<vector<bool>> visited = vector<vector<bool>>(data->numJobs, vector<bool>(data->horizonLength+1,false));
 
@@ -90,14 +92,15 @@ void SubproblemSolver::collapseVertices()
 		myQueue.push(o);
 
 		while(myQueue.size() > 0){
-			o = myQueue.front();
+			o = myQueue.front();			
+			myQueue.pop();
 
 			if(!visited[o->getJob()][o->getTime()]){
 				visited[o->getJob()][o->getTime()] = true;
 
 				//Iterate through adjacence list for job o and eqType
 				vector<Vertex*>::const_iterator it = o->getAdjacenceList(eqType).begin();
-				for(; it != o->getAdjacenceList(eqType).end(); it++)				{
+				for(; it != o->getAdjacenceList(eqType).end(); it++){
 					d = (*it);
 
 					if(o->getJob() != d->getJob()){ //not waiting
@@ -109,36 +112,29 @@ void SubproblemSolver::collapseVertices()
 						v.setTime(o->getTime());
 						v.setEquipmentTipe(eqType);
 
-						vit = master->vHash.find(v);
-						if(vit != master->vHash.end()){
-							//Get variable
-							GRBVar myVar = vit->second;
-							//Get lowerbound
-							double lb = myVar.get(GRB_DoubleAttr_LB);
-							//If variable is fixated to 1, then collapse associated vertices (buckets)
-							if(lb == 1){
-								//"Colapse" associated vertices 
-								fMatrix[o->getJob()][o->getTime()]->setSuccessor(fMatrix[d->getJob()][d->getTime()]);
+						double lb = node->getVarLB(v);
+						//If variable is fixated to 1, then collapse associated vertices (buckets)
+						if(lb == 1){
+							//"Colapse" associated vertices 
+							fMatrix[o->getJob()][o->getTime()]->setSuccessor(fMatrix[d->getJob()][d->getTime()]);
 
-								//Verify Conflicts (for the same job)
-								fixatedVars[o->getJob()] ++;
-								if(fixatedVars[o->getJob()] > 1){
-									infeasible = true;
-									return; //current master node is infeasible
-								}
+							//Verify Conflicts (for the same job)
+							fixatedVars[o->getJob()] ++;
+							if(fixatedVars[o->getJob()] > 1){
+								infeasible = true;
+								return; //current master node is infeasible
 							}
 						}
 					}
 					myQueue.push(d);
 				}
 			}
-			myQueue.pop();
 		}
 		visited.clear();
 	}
 }
 
-void SubproblemSolver::updateReducedCostsMatrix()
+void SubproblemSolver::updateReducedCostsMatrix(Node *node, int eqType)
 {
 	Variable v;
 	VariableHash::iterator vit;
@@ -150,7 +146,7 @@ void SubproblemSolver::updateReducedCostsMatrix()
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
 
-		//Make a DFS over the problem network
+		//Make a BFS over the problem network
 		Vertex *o, *d;
 		vector<vector<bool>> visited = vector<vector<bool>>(data->numJobs, vector<bool>(data->horizonLength+1,false));
 
@@ -158,7 +154,8 @@ void SubproblemSolver::updateReducedCostsMatrix()
 		myQueue.push(o);
 
 		while(myQueue.size() > 0){
-			o = myQueue.front();
+			o = myQueue.front();			
+			myQueue.pop();
 
 			if(!visited[o->getJob()][o->getTime()]){
 				visited[o->getJob()][o->getTime()] = true;
@@ -169,63 +166,36 @@ void SubproblemSolver::updateReducedCostsMatrix()
 					d = (*it);
 					int sw = 0;
 
+					v.reset();
+					v.setType(V_X);
+					v.setStartJob(o->getJob());
+					v.setEndJob(d->getJob());
+					v.setTime(o->getTime());
+					v.setEquipmentTipe(eqType);
+
 					if(o->getJob() != d->getJob()){ //not waiting
-						//Verify associated variable bound
-						v.reset();
-						v.setType(V_X);
-						v.setStartJob(o->getJob());
-						v.setEndJob(d->getJob());
-						v.setTime(o->getTime());
-						v.setEquipmentTipe(eqType);
-
-						vit = master->vHash.find(v);
-						if(vit != master->vHash.end()){ //Variable exist in current model
-							GRBVar myVar = vit->second;
-							double ub = myVar.get(GRB_DoubleAttr_UB);
-							if(ub == 0){
-								reducedCosts[o->getJob()][d->getJob()][o->getTime()] = infinityValue;
-								sw = 1;
-							}
-						}
-
-						//if arc was not fixated to 0, retrieve its associated reduced cost
-						if(sw == 0){
-							c.reset();
-							c.setType(C_EXPLICIT);
-							c.setStartJob(o->getJob());
-							c.setEndJob(d->getJob());
-							c.setTime(o->getTime());
-							c.setEquipmentType(eqType);
-
-							cit = master->cHash.find(c);
-							if(cit != master->cHash.end()){ //constraint exist
-								GRBConstr myConstr = cit->second;
-								//get shadow price
-								double pi = myConstr.get(GRB_DoubleAttr_Pi);
-								reducedCosts[o->getJob()][d->getJob()][o->getTime()] = pi;
-							}
-						}
+						double rc = node->getArcReducedCost(v);
+						reducedCosts[o->getJob()][d->getJob()][o->getTime()] = rc;
 					}
 					myQueue.push(d);
 				}
 			}
-			myQueue.pop();
 		}
 		visited.clear();
 	}	
 }
 
-void SubproblemSolver::solve()
+void SubproblemSolver::solve(Node *node, int eqType)
 {
 	//Reset buckets and reduced costs matrix
 	reset();
 
-	//Update reduced costs matrix
-	updateReducedCostsMatrix();
-
 	//If there are conflicts there is no solution.
  	if(infeasible)
 		return;
+
+	//Update reduced costs matrix
+	updateReducedCostsMatrix(node, eqType);	
 	
 	//DYNAMIC PROGRAMING
 	Vertex *p;
@@ -236,7 +206,7 @@ void SubproblemSolver::solve()
 
 	fMatrix[0][0]->addLabel(new Label(0,0,0));
 	for(int t=1; t <= data->horizonLength; t++){
-		for(int j=0; j < totalJobs; j++){
+		for(int j=0; j < data->numJobs; j++){
 			//Verify that current bucket is reachable
 			if(data->problemNetwork[j][t] != nullptr && data->problemNetwork[j][t]->getIncidenceList(eqType).size() > 0){
 				//Node is reachable, iterate through incidence list
@@ -265,7 +235,7 @@ void SubproblemSolver::solve()
 	//BUILD ROUTE
 	//verify that there is a solution (with negative reduced cost)
 	Label *bestLabel = fMatrix[0][data->horizonLength]->getBestLabel();
-	if(bestLabel == nullptr || bestLabel->getCost() >= 0){
+	if(bestLabel == nullptr){
 		return;
 	}
 

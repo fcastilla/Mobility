@@ -2,6 +2,7 @@
 #include "SubproblemSolver.h"
 #include "Bucket.h"
 #include "Route.h"
+#include "Node.h"
 
 #include <sstream>
 #include <vector>
@@ -14,23 +15,19 @@ Solver::Solver(ProblemData *d) : data(d)
 	//Create Gurobi enviroment and model
 	env = new GRBEnv();
 	//env->set(GRB_IntParam_Presolve,GRB_PRESOLVE_OFF);
-	model = new GRBModel(*env);
-
-	
+	model = new GRBModel(*env);	
 
 	//Objective function value of auxiliary variables
-	bigM = 10000;
-
-	//Initialize subproblem solver vector
-	spSolvers = vector<SubproblemSolver*>(data->numEquipments);
-	routeCounter = 0;
+	bigM = 1000000;
 	
+	//Initialize subproblem solver vector
+	spSolver = new SubproblemSolver(data, QROUTE);	
 }
 
 Solver::~Solver()
 {
-	//Destroy vector of subproblem solvers
-	spSolvers.clear();
+	//Destroy subproblem solver
+	delete spSolver;
 
 	//Destroy variable hash map
 	vHash.clear();
@@ -50,13 +47,20 @@ int Solver::solve()
 	//Build the initial model
 	buildInitialModel();
 
-	//Create a subproblem solver for each equipment (vehicle) type
-	for(int eqType=0; eqType < data->numEquipments; eqType++){
-		spSolvers[eqType]  = new SubproblemSolver(this,data,eqType,SubproblemType::QROUTE);
-	}
+	//Global parameters
+	zInc = 1e13;
+	totalNodes = 0;
+	exploredNodes = 0;
+	routeCounter = 0;
+
+	//Create root node
+	Node *rootNode = new Node();
+	rootNode->setModel(model);
+	rootNode->setVHash(vHash);
+	rootNode->setCHash(cHash);
 
 	//Run Branch and Price (DFS)
-	int status = BaP();
+	int status = BaP(rootNode);
 
 	return status;
 }
@@ -76,7 +80,8 @@ void Solver::buildInitialModel()
 			y.setStartJob(j);
 			y.setTime(t);
 
-			vHash[y] = model->addVar(0.0,1.0,0.0,GRB_CONTINUOUS,y.toString());
+			vHash[y] = true;
+			model->addVar(0.0,1.0,0.0,GRB_CONTINUOUS,y.toString());
 		}
 	}
 
@@ -85,7 +90,7 @@ void Solver::buildInitialModel()
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
 
-		//Make a DFS over the problem network
+		//Make a BFS over the problem network
 		Vertex *o, *d;
 		vector<vector<bool>> visited = vector<vector<bool>>(data->numJobs, vector<bool>(data->horizonLength+1,false));
 
@@ -121,7 +126,8 @@ void Solver::buildInitialModel()
 						x.setEquipmentTipe(eqType);
 
 						if(vHash.find(x) == vHash.end()){
-							vHash[x] = model->addVar(0.0,1.0,transitionTime,GRB_CONTINUOUS, x.toString());
+							vHash[x] = true;
+							model->addVar(0.0,1.0,ceil(transitionTime),GRB_CONTINUOUS, x.toString());
 						}
 
 						//create bAuxVar
@@ -133,7 +139,8 @@ void Solver::buildInitialModel()
 						b.setEquipmentTipe(eqType);
 
 						if(vHash.find(b) == vHash.end()){
-							vHash[b] = model->addVar(0.0,1.0,bigM,GRB_CONTINUOUS, b.toString());
+							vHash[b] = true;
+							model->addVar(0.0,1.0,bigM,GRB_CONTINUOUS, b.toString());
 						}
 						
 					}				
@@ -153,7 +160,8 @@ void Solver::buildInitialModel()
 		f.setType(V_FAUX);
 		f.setEquipmentTipe(eqType);
 
-		vHash[f] = model->addVar(0.0,e->getNumMachines(),bigM,GRB_CONTINUOUS, f.toString());
+		vHash[f] = true;
+		model->addVar(0.0,e->getNumMachines(),bigM,GRB_CONTINUOUS, f.toString());
 	}
 
 	model->update();
@@ -162,6 +170,7 @@ void Solver::buildInitialModel()
 	//----------------------
 	//CREATE CONSTRAINTS
 	//----------------------
+	GRBVar var1, var2;
 
 	//Cover Constraints
 	for(int j=1; j < data->numJobs; j++){
@@ -178,10 +187,13 @@ void Solver::buildInitialModel()
 				y.setStartJob(j);
 				y.setTime(t);
 
-				if(vHash.find(y) != vHash.end())
-					expr += vHash[y];
+				if(vHash.find(y) != vHash.end()){
+					var1 = model->getVarByName(y.toString());
+					expr += var1;
+				}
 			}
-			cHash[c] = model->addConstr(expr == 1, c.toString());
+			cHash[c] = true;
+			model->addConstr(expr == 1, c.toString());
 		}
 	}
 
@@ -199,7 +211,8 @@ void Solver::buildInitialModel()
 
 			if(vHash.find(y) == vHash.end()) continue; //job cannot be attended at time period t, so go to t+1
 
-			expr -= vHash[y];
+			var1 = model->getVarByName(y.toString());
+			expr -= var1;
 
 			for(int eqType=0; eqType < data->numEquipments; eqType++){
 				//Verify that job j requires eqType
@@ -221,10 +234,13 @@ void Solver::buildInitialModel()
 						v.setTime(t);
 						v.setEquipmentTipe(eqType);
 
-						if(vHash.find(v) != vHash.end())
-							expr += vHash[v];
+						if(vHash.find(v) != vHash.end()){
+							var2 = model->getVarByName(v.toString());
+							expr += var2;
+						}
 					}
-					cHash[c] = model->addConstr(expr == 0, c.toString());
+					cHash[c] = true;
+					model->addConstr(expr == 0, c.toString());
 				}
 			}
 		}
@@ -244,8 +260,10 @@ void Solver::buildInitialModel()
 		f.setEquipmentTipe(eqType);
 
 		if(cHash.find(c) == cHash.end() && vHash.find(f) != vHash.end()){
-			expr += vHash[f];
-			cHash[c] = model->addConstr(expr == e->getNumMachines(), c.toString());
+			var1 = model->getVarByName(f.toString());
+			expr += var1;
+			cHash[c] = true;
+			model->addConstr(expr == e->getNumMachines(), c.toString());
 		}
 	}
 
@@ -280,9 +298,12 @@ void Solver::buildInitialModel()
 
 
 					if(cHash.find(c) == cHash.end() && vHash.find(v) != vHash.end() && vHash.find(b) != vHash.end()){
-						expr += vHash[v];
-						expr -= vHash[b];
-						cHash[c] = model->addConstr(expr == 0, c.toString());
+						var1 = model->getVarByName(v.toString());
+						var2 = model->getVarByName(b.toString());
+						expr += var1;
+						expr -= var2;
+						cHash[c] = true;
+						model->addConstr(expr == 0, c.toString());
 					}
 				}
 			}
@@ -295,109 +316,66 @@ void Solver::buildInitialModel()
 	model->write("modelo.lp");
 }
 
-int Solver::solveCurrentLPByColumnGeneration()
+int Solver::solveLPByColumnGeneration(Node *node)
 {
 	int status = GRB_INPROGRESS;
+	Route *myRoute;
 
-	//Reset subproblem solvers and collapse vertices
-	for(int eqType=0; eqType < data->numEquipments; eqType++){
-		spSolvers[eqType]->reset();
-		spSolvers[eqType]->collapseVertices();
-	}				
+	//Reset subproblem solver and collapse vertices
+	spSolver->reset();
+	//spSolver->collapseVertices();
 
 	//Dynamically solve the model by column generation.
-	Route *myRoute;
-	Edge *myEdge;
-	Variable v;
-	VariableHash::iterator vit;
-	Constraint c1, c2;
-	ConstraintHash::iterator cit1,cit2;
 	bool end = false;
 	while(!end){	
-		//Solve current model
-		model->optimize();
-		status = model->get(GRB_IntAttr_Status);
-
-		int cont = 0;
+		//Solve current model		
+		status = node->solve();
 
 		if(status != GRB_OPTIMAL)
 			return status; 
 
-		//Print solution
-		cout << "New Solution: " << endl;
-		vit = vHash.begin();
-		for(; vit != vHash.end(); vit++){
-			v = vit->first;
-			double sol = vit->second.get(GRB_DoubleAttr_X);
-			if(sol > 0.000001)
-				cout << v.toString() << " = " << sol << endl;
-		}
-
+		node->printSolution();
+		int sw = 0;		
 
 		//Generate routes for each equipment type
 		for(int eqType = 0; eqType < data->numEquipments; eqType++){
-			SubproblemSolver *mySpSolver = spSolvers[eqType];
-			mySpSolver->solve();
-			if(mySpSolver->isInfeasible()){
+			spSolver->solve(node, eqType);
+
+			if(spSolver->isInfeasible()){
 				return GRB_INFEASIBLE;
 			}
+
 			//Add route(s) to the model
-			if(mySpSolver->routes.size() > 0){
-				//ADD ROUTE(S) TO THE MODEL
-				vector<Route*>::iterator rit = mySpSolver->routes.begin();
-				for(; rit != mySpSolver->routes.end(); rit++){
-					myRoute = (*rit);
-					cout << myRoute->toString() << endl;
+			vector<Route*>::iterator rit = spSolver->routes.begin();
+			for(; rit != spSolver->routes.end(); rit++){
+				myRoute = (*rit);
+				cout << myRoute->toString() << endl;
+				double routeCost = myRoute->getCost();
+				double verifiedCost = node->verifyRouteCost(myRoute);
+				cout << endl;
+				cout << "Verification: " << routeCost << " vs " << verifiedCost << endl;
+				cout << endl;
+				if(routeCost != verifiedCost){
+					cout << "ERROOOOOO: " << routeCost << " vs " << verifiedCost << endl;
+					getchar();
+				}
+				routeCost -= node->getRouteReducedCost(eqType);
+				cout << routeCost << endl;
+			
+				if(routeCost >= 0) continue; //not a good route.
 
-					//Create lambda variable
-					v.reset();
-					v.setType(V_LAMBDA);
-					v.setRouteNum(routeCounter);
-					v.setEquipmentTipe(eqType);
-
-					if(vHash.find(v) == vHash.end()){
-						vHash[v] = model->addVar(0.0,1.0,0.0,GRB_CONTINUOUS,v.toString());
-						model->update(); //TODO: verify if update is needed at this point.
-
-						//Add column (Card constraints)
-						c1.reset();
-						c1.setType(C_CARD);
-						c1.setEquipmentType(eqType);
-
-						cit1 = cHash.find(c1);
-						if(cit1 != cHash.end())
-							model->chgCoeff(cit1->second,vHash[v],1.0);
-
-						//Add column (Explicit Master constraints)
-						vector<Edge*>::iterator eit = myRoute->edges.begin();
-						for(; eit != myRoute->edges.end(); eit++){
-							myEdge = (*eit);
-
-							//Explicit constraints
-							c2.reset();
-							c2.setType(C_EXPLICIT);
-							c2.setStartJob(myEdge->getStartJob());
-							c2.setEndJob(myEdge->getEndJob());
-							c2.setTime(myEdge->getTime());
-							c2.setEquipmentType(myRoute->getEquipmentType());
-
-							cit2 = cHash.find(c2);
-							if(cit2 != cHash.end())
-								model->chgCoeff(cit2->second, vHash[v], -1.0);
-						}
-
-						//Update the model to include new column
-						model->update();
-						//model->write("modelo.lp");
-						routeCounter++;
-						cont++;
-					}
+				myRoute->setRouteNumber(routeCounter++);
+				if(node->addColumn(myRoute)){
+					sw = 1;
+				}else{
+					cout << "Error: column " << myRoute->getRouteNumber() << "," 
+						<< myRoute->getEquipmentType() << " already existed in node " << node->getNodeId() << endl;
 				}
 			}
 		}
 
 		//If no routes where generated, the current lp solution is optimal
-		if(cont <= 0){
+		if(sw == 0){
 			end = true;
 		}
 	}
@@ -405,10 +383,10 @@ int Solver::solveCurrentLPByColumnGeneration()
 	return status;
 }
 
-int Solver::BaP()
+int Solver::BaP(Node *node)
 {
 	//TODO: implement Branch and Price method.
-	int result = solveCurrentLPByColumnGeneration();
+	int result = solveLPByColumnGeneration(node);
 
 	return result;
 }

@@ -37,16 +37,24 @@ public:
 	int getTime() const { return time; }
 	int getEquipmentType() const { return eqType; }
 	int getRouteNum() const { return routeNum; }
+	
+	int getRank() const { return *rank; }
+	double getFractionality() const { return *fractionality; }
+	double getScore() const { return *score; }
 
 	// SET METHODS 
 	void reset();
 	void setType(VariableType t){ type = t; }
-	void setValue(double v) { *value = v; }
+	void setValue(double v) const { *value = v; }
 	void setStartJob(int s) { sJob = s; }
 	void setEndJob(int e) { eJob = e; }
 	void setTime(int t) { time = t; }
 	void setEquipmentTipe(int e){ eqType = e; }
 	void setRouteNum(int num){ routeNum = num; }
+
+	void increaseRank() const{ *rank += 1; }
+	void setFractionality(double f) const { *fractionality = f; }
+	void setScore(double s) const { *score = s; }
 
 	// OPERATORS 
 	//Assignment 
@@ -57,12 +65,7 @@ public:
 	bool operator==(const Variable& var) const;
 
 	//Variable name
-	std::string toString();
-
-	//Other members
-	int rank;
-	double fractionality;
-	double score;
+	std::string toString();	
 
 private:
 	VariableType type;
@@ -71,8 +74,10 @@ private:
 	int time;
 	int eqType;
 	int routeNum;
+	int *rank;
+	double *fractionality;
+	double *score;
 };
-
 
 class VariableHasher : public stdext::hash_compare<Variable>
 {
@@ -88,25 +93,25 @@ class VariableRankComparator
 {
 public:
     bool operator()(const Variable& v1, const Variable& v2){
-        return v1.rank < v2.rank;
+        return v1.getRank() < v2.getRank();
     }
-}varRankComparator;
+};
 
 class VariableFractionalityComparator
 {
 public:
     bool operator()(const Variable& v1, const Variable& v2){
-        return v1.fractionality < v2.fractionality;
+        return v1.getFractionality() < v2.getFractionality();
     }
-}varFractionalityComparator;
+};
 
 class VariableScoreComparator
 {
 public:
     bool operator()(const Variable& v1, const Variable& v2){
-        return v1.score < v2.score;
+        return v1.getScore() < v2.getScore();
     }
-}varScoreComparator;
+};
 
 /**
 * Type definition for the hash object.

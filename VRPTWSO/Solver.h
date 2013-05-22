@@ -42,14 +42,11 @@ private:
 	int exploredNodes;
 	Node* bestSolution;
 
-	//Subproblem related
-	vector<SubproblemSolver*> spSolvers;
-
 	//Methods
 	void buildProblemNetwork();
 	void buildInitialModel();
 	void collapseSubproblemVertices();
 	
-	int BaP();
-	int solveLPByColumnGeneration();
+	int BaP(Node *node);
+	int solveLPByColumnGeneration(Node *node);
 };

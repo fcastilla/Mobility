@@ -17,6 +17,16 @@ public:
 	
 	int solve();
 	int solStatus;
+	
+	VariableHash vHash;
+	ConstraintHash cHash;
+
+	//Get Methods
+	int getNodeId(){ return nodeId; }	
+	double getZLP(){ return Zlp; }
+	double getVarLB(const Variable &v);
+	double getArcReducedCost(const Variable &v);
+	double getRouteReducedCost(int eqType);
 
 	//Set Methods
 	void setModel(GRBModel *m){ model = m; }
@@ -25,19 +35,19 @@ public:
 	
 	//Other Methods 
 	const Variable &getMostFractional();
-	double getZLP(){ return Zlp; }
 	bool isIntegerSolution(){ return isInteger; }
 
 	bool addColumn(Route *r);
 	bool addBranchConstraint(const Variable &v, double rhs);
 	int fixVarsByReducedCost(double maxRC);
 	int cleanNode(int maxRoutes);
+	void printSolution();
+
+	double verifyRouteCost(Route *r);
 
 private:
 	GRBModel *model;
 	vector<Route*> routes;
-	VariableHash vHash;
-	ConstraintHash cHash;
 		
 	int nodeId;
 	double Zlp;

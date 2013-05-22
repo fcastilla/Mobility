@@ -13,30 +13,28 @@ enum SubproblemType
 	NGROUTE
 };
 
+class Node;
 class Solver;
 
 class SubproblemSolver
 {
 	
 public:
-	SubproblemSolver(Solver *mPtr, ProblemData * d, int e, SubproblemType m);
+	SubproblemSolver(ProblemData * d, SubproblemType m);
 	~SubproblemSolver();
 
 	vector<Route*> routes;
 
 	void reset();
-	void collapseVertices();
-	void updateReducedCostsMatrix();
-	bool isInfeasible(){ return infeasible; }
-	void solve();
+	void solve(Node *node, int eqType);
+	void collapseVertices(Node *node, int eqType);
+	void updateReducedCostsMatrix(Node *node, int eqType);
+	bool isInfeasible(){ return infeasible; }	
 
 private:
-	Solver *master;
 	ProblemData * data;
-	int eqType;
 	SubproblemType method;
 
-	int totalJobs;
 	double infinityValue;
 	bool infeasible;
 

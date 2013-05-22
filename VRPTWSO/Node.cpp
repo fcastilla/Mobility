@@ -2,6 +2,8 @@
 #include "Bucket.h"
 #include "Route.h"
 
+#include <map>
+#include <hash_map>
 #include <cmath>
 #include <algorithm>
 #include <vector>
@@ -12,8 +14,17 @@ Node::Node(const Node &other) : vHash(other.vHash), cHash(other.cHash),
 	model = new GRBModel(*other.model);
 }
 
+Node::~Node()
+{
+	vHash.clear();
+	cHash.clear();
+	routes.clear();
+	delete model;
+}
+
 int Node::solve()
 {
+	model->write("modelo.lp");
 	model->optimize();
 	solStatus = model->get(GRB_IntAttr_Status);
 	
@@ -41,11 +52,11 @@ void Node::updateVariables()
 		var = model->getVarByName(v.toString());
 
 		if(var.get(GRB_IntAttr_VBasis) != GRB_BASIC)
-			v.rank ++;
+			vit->first.increaseRank();
 
 		val = var.get(GRB_DoubleAttr_X);
-		v.setValue(val);
-		v.fractionality = abs(v.getValue() - 0.5);
+		vit->first.setValue(val);
+		vit->first.setFractionality(fabs(v.getValue() - 0.5));
 
 		if(floor(val) < val) isInteger = false;
 	}
@@ -55,10 +66,9 @@ const Variable& Node::getMostFractional()
 {
 	Variable mostFractional, v;
 	VariableHash::iterator vit = vHash.begin();
-	mostFractional.fractionality = 1;
 	for(; vit != vHash.end(); vit++){
 		v = vit->first;
-		if(v.fractionality < mostFractional.fractionality)
+		if(v.getFractionality() < mostFractional.getFractionality())
 			mostFractional = v;
 	}
 
@@ -74,6 +84,8 @@ bool Node::addBranchConstraint(const Variable& v, double rhs)
 
 	model->addConstr(expr == rhs, "Branch_" + myVar.toString());
 	model->update();
+
+	return true;
 }
 
 bool Node::addColumn(Route *route)
@@ -98,7 +110,7 @@ bool Node::addColumn(Route *route)
 	}
 
 	vHash[v] = true;
-	GRBVar lambda = model->addVar(0.0,1.0,0.0,GRB_CONTINUOUS,v.toString());
+	GRBVar lambda = model->addVar(0.0,GRB_INFINITY,0.0,GRB_CONTINUOUS,v.toString());
 	model->update(); //TODO: verify if update is needed at this point.
 
 	//Add column (Card constraints)
@@ -168,6 +180,7 @@ int Node::fixVarsByReducedCost(double maxRC)
 		}
 	}
 
+	model->update();
 	return deletedVars;
 }
 
@@ -194,6 +207,7 @@ int Node::cleanNode(int maxRoutes)
 		}
 	}
 
+	VariableRankComparator varRankComparator;
 	sort(lambdas.begin(),lambdas.end(),varRankComparator);
 
 	it = lambdas.begin();
@@ -211,5 +225,105 @@ int Node::cleanNode(int maxRoutes)
 		}
 	}
 
+	model->update();
 	return cont;
+}
+
+double Node::getVarLB(const Variable &v)
+{
+	GRBVar myVar;
+	VariableHash::iterator vit = vHash.find(v);
+	if(vit != vHash.end()){
+		Variable var = vit->first;
+		myVar = model->getVarByName(var.toString());
+		return myVar.get(GRB_DoubleAttr_LB);
+	}
+
+	return -1;
+}
+
+double Node::getArcReducedCost(const Variable &v)
+{
+	Variable var;
+	VariableHash::iterator vit = vHash.find(v);
+	if(vit != vHash.end()){ //Variable exist in current model
+		var = vit->first;
+		GRBVar myVar = model->getVarByName(var.toString());
+		double ub = myVar.get(GRB_DoubleAttr_UB);
+		if(ub == 0){ //se a variavel esta fixada a 0
+			return 1e13;
+		}
+	}
+	
+	Constraint c;
+	c.setType(C_EXPLICIT);
+	c.setStartJob(v.getStartJob());
+	c.setEndJob(v.getEndJob());
+	c.setTime(v.getTime());
+	c.setEquipmentType(v.getEquipmentType());
+	
+	ConstraintHash::iterator cit = cHash.find(c);
+	if(cit != cHash.end()){ //constraint exist
+		GRBConstr myConstr = model->getConstrByName(c.toString());
+		return myConstr.get(GRB_DoubleAttr_Pi) * -1; //return shadow price
+	}
+
+	return 1e13;
+}
+
+double Node::getRouteReducedCost(int eqType)
+{
+	Constraint c;
+	c.setType(C_CARD);
+	c.setEquipmentType(eqType);
+
+	ConstraintHash::iterator cit = cHash.find(c);
+	if(cit != cHash.end()){
+		GRBConstr myConstr = model->getConstrByName(c.toString());
+		return myConstr.get(GRB_DoubleAttr_Pi); //return shadow price
+	}
+
+	return 1e13;
+}
+
+void Node::printSolution()
+{
+	Variable v;
+	
+	cout << "//------------------------------------------------//" << endl;
+	cout << "//----------------NEW SOLUTION--------------------//" << endl;
+	cout << "//------------------------------------------------//" << endl;
+	
+	cout << "Node id: " << nodeId << " - ObjValue: " << Zlp << endl;
+
+	VariableHash::iterator vit = vHash.begin();
+	for(; vit != vHash.end(); vit++){
+		v = vit->first;
+		if(v.getValue() > 0.00001)
+			cout << v.toString() << " = " << v.getValue() << endl;
+	}
+	
+	cout << "//------------------------------------------------//" << endl;
+}
+
+double Node::verifyRouteCost(Route *r)
+{
+	double cost = 0;
+
+	Variable v;
+	Edge *e;
+	vector<Edge*>::iterator eit = r->edges.begin();
+	for(; eit != r->edges.end(); eit++){
+		e = (*eit);
+		v.reset();
+		v.setType(V_X);
+		v.setStartJob(e->getStartJob());
+		v.setEndJob(e->getEndJob());
+		v.setTime(e->getTime());
+		v.setEquipmentTipe(r->getEquipmentType());
+
+		cost += getArcReducedCost(v);
+	}
+
+	return cost;
 }

@@ -20,7 +20,6 @@ Clase Solver
 	
 	METODO SolveByCG(*node){
 		end = false;
-		node->resetVarRank();
 		
 		ENQUANTO QUE(!end)
 			cgStatus = node->solve();
@@ -217,7 +216,9 @@ Class NODE
 	- Recibir modelo master e tipo de equipamento em metodo solve.
 	- Retornar rota(s) sem importar custo reduzido.
 				
-		
+REVISAR
+- Rank de las variables se cera al crear un nodo.
+				
 DUDAS
 1) restrição de branching como corte ou lb/ub???
 	- Revição de fixação em subproblema.

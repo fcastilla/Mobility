@@ -12,10 +12,10 @@ int main(int argc, char *argv[])
 	//Validate parameters
 	if(argc < 1){
 		cout << "Please provide a instance file name. " << endl;
-		//goto error;
+		goto error;
 	}
 	
-	fileName = string(argv[0]);
+	fileName = string(argv[1]);
 
 	//Create object for data reading
 	ProblemData *data = new ProblemData();
