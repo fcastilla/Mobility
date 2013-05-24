@@ -121,23 +121,20 @@ void ProblemData::readData(const std::string & fileName)
 	//and initialize transition times for each equipment type
 	int origJobLocId, destJobLocId;
 	double transitionTime;
-	for (std::vector<Equipment *>::iterator vepIt = equipments.begin(); vepIt != equipments.end();
-		vepIt++)
-	{
+	std::vector<Equipment *>::iterator vepIt = equipments.begin();
+	for (; vepIt != equipments.end();vepIt++){
 		/// dummy job is also used
 		std::vector<std::vector<double>> jobTransitionTimes(numJobs + 1, std::vector<double>(numJobs + 1, 0));
-		for (int origJob = 0; origJob < numJobs; origJob++)
-		{
+		for (int origJob = 0; origJob < numJobs; origJob++){
 			/// to real jobs
-			for (int destJob = origJob + 1; destJob < numJobs; destJob++)
-			{
+			for (int destJob = origJob + 1; destJob < numJobs; destJob++){
 				origJobLocId = jobs[origJob]->getLocationId();
 				destJobLocId = jobs[destJob]->getLocationId();
+				double dist = (double) locDistances[origJobLocId][destJobLocId];
 				if ((*vepIt)->getMaxTransitionTime() <= 0){ //dont recalculate
-					transitionTime = (double) locDistances[origJobLocId][destJobLocId];
+					transitionTime = dist;
 				}else{
-					transitionTime = (double) (locDistances[origJobLocId][destJobLocId] / maxLocDistance
-						* (*vepIt)->getMaxTransitionTime());
+					transitionTime = (double) (dist / maxLocDistance * (*vepIt)->getMaxTransitionTime());
 				}
 				jobTransitionTimes[destJob][origJob] = jobTransitionTimes[origJob][destJob] = transitionTime;
 			}

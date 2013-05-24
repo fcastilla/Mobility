@@ -41,7 +41,7 @@ void Bucket::reset()
 }
 
 //QROUTE BUCKET
-void QRouteBucket::evaluate(const vector<Label*> &oLabels, double rCost, bool fix)
+void QRouteBucket::evaluate(vector<Label*> oLabels, double rCost, bool fix)
 {
 	//Create label
 	Label *myLabel = new Label(job,time);
@@ -63,7 +63,7 @@ void QRouteBucket::evaluate(const vector<Label*> &oLabels, double rCost, bool fi
 	else
 	{
 		Label *bestLabel = labels[0];
-		if(myLabel < bestLabel || myLabel->isFixed())
+		if(*myLabel < *bestLabel)
 		{
 			labels[0] = myLabel;
 			delete bestLabel;
@@ -79,7 +79,7 @@ Label* QRouteBucket::getBestLabel()
 }
 
 //QROUTENOLOOP BUCKET
-void QRouteNoLoopBucket::evaluate(const vector<Label*> &oLabels, double rCost, bool fix)
+void QRouteNoLoopBucket::evaluate(vector<Label*> oLabels, double rCost, bool fix)
 {
 	//Create Label
 	Label *myLabel = new Label(job,time);
@@ -90,42 +90,48 @@ void QRouteNoLoopBucket::evaluate(const vector<Label*> &oLabels, double rCost, b
 		if(i > pSize) break;
 
 		Label *pLabel = oLabels[i];
+		Label *predecessor = pLabel->getPredecessor();
 		//Avoid Loop
 		if(job != 0){
-			if(pLabel->getPredecessor() != nullptr && pLabel->getPredecessor()->getJob() == job) continue;
+			if(predecessor != nullptr && predecessor->getJob() == job) continue;
 		}
 		//No Loop at this point 		
 		myLabel->setCost(pLabel->getCost() + rCost);
-		myLabel->setPredecessor(pLabel);
+		if(pLabel->getJob() != job)
+			myLabel->setPredecessor(pLabel);
+		else
+			myLabel->setPredecessor(predecessor);
 		myLabel->setFixed(fix);
 
 		break;
 	}
 
 	//Dominance Check (same bucket)
-	if(labels.size() == 0)
+	int numLabels = labels.size();
+	if(numLabels == 0){
 		labels.push_back(myLabel);
-	else
-	{
-		//Evaluate best label
-		Label *bestLabel = labels[0];
-		if(*myLabel < *bestLabel){
-			Label *temp = labels[0];
+	}else if(numLabels == 1){
+		labels.resize(2);
+		if(myLabel->getCost() < labels[0]->getCost()){
+			labels[1] = labels[0];
 			labels[0] = myLabel;
-			if(labels.size() >= 2){
-				delete labels[1];
-				labels[1] = temp;
-			}else{
-				labels.push_back(temp);
-			}
-		}else{ //Evaluate second best label
-			if(labels.size() >= 2){
-				if(*myLabel < *labels[1])
-					labels[1] = myLabel;
-			}else{
-				labels.push_back(myLabel);
-			}
+		}else{
+			labels[1] = myLabel;
 		}
+	}else if(numLabels == 2){
+		if(myLabel->getCost() < labels[0]->getCost()){
+			delete labels[1];
+			labels[1] = labels[0];
+			labels[0] = myLabel;
+		}else if(myLabel->getCost() < labels[1]->getCost()){
+			delete labels[1];
+			labels[1] = myLabel;
+		}else{
+			delete myLabel;
+		}
+	}else{
+		delete myLabel;
+		labels.resize(2);
 	}
 }
 

@@ -4,12 +4,21 @@
 #include <map>
 #include <hash_map>
 
+#ifdef DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
 // All variable types
 enum VariableType
 {
 	V_ERROR = 0,
 	V_Y,
 	V_X,
+	V_W,
 	V_LAMBDA,
 	V_FAUX,
 	V_BAUX
@@ -35,6 +44,7 @@ public:
 	int getStartJob() const { return sJob; }
 	int getEndJob() const { return eJob; }
 	int getTime() const { return time; }
+	int getArrivalTime() const { return arrivalTime; }
 	int getEquipmentType() const { return eqType; }
 	int getRouteNum() const { return routeNum; }
 	
@@ -49,6 +59,7 @@ public:
 	void setStartJob(int s) { sJob = s; }
 	void setEndJob(int e) { eJob = e; }
 	void setTime(int t) { time = t; }
+	void setArrivalTime(int t){ arrivalTime = t; }
 	void setEquipmentTipe(int e){ eqType = e; }
 	void setRouteNum(int num){ routeNum = num; }
 
@@ -72,6 +83,7 @@ private:
 	double *value;
 	int sJob, eJob;
 	int time;
+	int arrivalTime;
 	int eqType;
 	int routeNum;
 	int *rank;

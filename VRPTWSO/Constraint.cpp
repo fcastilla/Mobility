@@ -96,6 +96,12 @@ std::string Constraint::toString()
 		case C_SYNCH:
 			str << "SYNCH_" << sJob << "," << time << "," << eqType;
 			break;
+		case C_OVF_FLOW_INIT:
+			str << "FINIT_" << eqType;
+			break;
+		case C_OVF_FLOW:
+			str << "FLOW_" << sJob << "," << time << "," << eqType;
+			break;
 		case C_CARD:
 			str << "CARD_" << eqType;
 			break;
@@ -114,35 +120,34 @@ size_t ConstraintHasher::operator() (const Constraint& cons) const
 	unsigned int sum = 0;
 
 	//add the type cntribution
-	if (cons.type != NULL)
-	{
+	if (cons.type != NULL){
 		sum *= HASH_PRIME;
 		sum += intHash(cons.type);
 	}
 
 	//add start job contribution
-	if(cons.sJob != -1){
+	if (cons.sJob != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(cons.sJob);
 	}
 
 	//add end job contribution
-	if(cons.eJob != -1){
+	if (cons.eJob != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(cons.eJob);
 	}
 
 	//add time contribution
-	if(cons.time != -1){
+	if (cons.time != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(cons.time);
 	}
 
 	//add equipment type contribution
-	if(cons.eqType != -1){
+	if (cons.eqType != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(cons.eqType);
-	}	
+	}
 
 	return sum;
 }

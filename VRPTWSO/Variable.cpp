@@ -34,13 +34,14 @@ void Variable::reset()
 	sJob = -1;
 	eJob = -1;
 	time = -1; 
+	arrivalTime = -1;
 	eqType = -1;
 	routeNum = -1;
 }
 
 Variable::~Variable()
 {
-	reset();
+	//reset();
 	delete value;
 	delete score;
 	delete fractionality;
@@ -54,6 +55,7 @@ Variable& Variable::operator=(const Variable& var)
 	this->sJob = var.getStartJob();
 	this->eJob = var.getEndJob();
 	this->time = var.getTime();
+	this->arrivalTime = var.getArrivalTime();
 	this->eqType = var.getEquipmentType();
 	this->routeNum = var.getRouteNum();
 
@@ -117,6 +119,9 @@ string Variable::toString()
 		case(V_X):
 			str << "X_" << sJob << "," << eJob << "," << time << "," << eqType;
 			break;
+		case(V_W):
+			str << "W_" << sJob << "," << time << "," << eqType;
+			break;
 		case(V_LAMBDA):
 			str << "LAMBDA_" << eqType << "," << routeNum;
 			break;
@@ -143,38 +148,37 @@ size_t VariableHasher::operator()(const Variable& v) const
 	unsigned int sum = 0;
 
 	//add the type contribution
-	if (v.type != NULL)
-	{
+	if (v.type != NULL){
 		sum *= HASH_PRIME;
 		sum += intHash(v.type);
 	}
 
-	//add start job contribution
-	if(v.sJob != -1){
+	//add start job contribution	
+	if (v.sJob != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(v.sJob);
 	}
 
 	//add end job contribution
-	if(v.eJob != -1){
+	if (v.eJob != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(v.eJob);
 	}
 
 	//add time contribution
-	if(v.time != -1){
+	if (v.time != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(v.time);
 	}
 
 	//add equipment type contribution
-	if(v.eqType != -1){
+	if (v.eqType != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(v.eqType);
 	}
 	
 	//add route number contribution
-	if(v.routeNum != -1){
+	if (v.routeNum != -1){
 		sum *= HASH_PRIME;
 		sum += intHash(v.routeNum);
 	}

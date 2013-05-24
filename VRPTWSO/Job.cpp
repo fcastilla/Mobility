@@ -12,7 +12,7 @@ void Job::setTimePeriods(int horizonLength, const vector<Equipment*>& equipments
 	int timeToDepot = 10000000;
 	for(int eqType = 0; eqType < equipmentTypes.size(); eqType++){
 		if(equipmentTypes[eqType])
-			timeToDepot = min(timeToDepot, (int)ceil(equipments[eqType]->getTransitionTime(id,0)));
+			timeToDepot = min(timeToDepot, (int)equipments[eqType]->getTransitionTime(id,0));
 	}
 	
 	for (shiftIndex = 0; shiftIndex < workShifts.size(); shiftIndex++)

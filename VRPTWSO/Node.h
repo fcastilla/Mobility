@@ -4,6 +4,14 @@
 #include "Variable.h"
 #include "Constraint.h"
 
+#ifdef DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
 using namespace std;
 
 class Route;
@@ -11,7 +19,7 @@ class Route;
 class Node
 {
 public:
-	Node() : Zlp(1e13), nodeId(-1){};
+	Node() : Zlp(1e13), nodeId(-1), routeCount(0){};
 	Node(const Node &node);
 	~Node();
 	
@@ -24,21 +32,23 @@ public:
 	//Get Methods
 	int getNodeId(){ return nodeId; }	
 	double getZLP(){ return Zlp; }
-	double getVarLB(const Variable &v);
-	double getArcReducedCost(const Variable &v);
-	double getRouteReducedCost(int eqType);
+	double getVarLB(Variable v);
+	double getArcReducedCost(Variable v);
+	double getRouteUseReduzedCost(int eqType);
+	int getRouteCount(){ return routeCount; }
 
 	//Set Methods
+	void setNodeId(int id){ nodeId = id; }
 	void setModel(GRBModel *m){ model = m; }
 	void setVHash(VariableHash hash){ vHash = hash; }
 	void setCHash(ConstraintHash hash){ cHash = hash; }
 	
 	//Other Methods 
-	const Variable &getMostFractional();
+	const Variable getMostFractional();
 	bool isIntegerSolution(){ return isInteger; }
 
 	bool addColumn(Route *r);
-	bool addBranchConstraint(const Variable &v, double rhs);
+	bool addBranchConstraint(Variable v, double rhs);
 	int fixVarsByReducedCost(double maxRC);
 	int cleanNode(int maxRoutes);
 	void printSolution();
@@ -52,6 +62,7 @@ private:
 	int nodeId;
 	double Zlp;
 	bool isInteger;
+	int routeCount;
 
-	void updateVariables();
+	void updateVariables(int status);
 };

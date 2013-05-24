@@ -15,13 +15,14 @@ Solver::Solver(ProblemData *d) : data(d)
 	//Create Gurobi enviroment and model
 	env = new GRBEnv();
 	//env->set(GRB_IntParam_Presolve,GRB_PRESOLVE_OFF);
+	//env->set(GRB_IntParam_OutputFlag,0);
 	model = new GRBModel(*env);	
 
 	//Objective function value of auxiliary variables
-	bigM = 1000000;
+	bigM = 10000;
 	
 	//Initialize subproblem solver vector
-	spSolver = new SubproblemSolver(data, QROUTE);	
+	spSolver = new SubproblemSolver(data, QROUTE_NOLOOP);	
 }
 
 Solver::~Solver()
@@ -41,54 +42,90 @@ Solver::~Solver()
 
 int Solver::solve()
 {
+	int status = GRB_INPROGRESS;
+
+	//Global parameters
+	zInc = 10000;
+	totalNodes = 0;
+	exploredNodes = 0;
+	routeCounter = 0;
+
 	//Build problem graph representation
 	buildProblemNetwork();
 
 	//Build the initial model
 	buildInitialModel();
 
-	//Global parameters
-	zInc = 1e13;
-	totalNodes = 0;
-	exploredNodes = 0;
-	routeCounter = 0;
+	//Get a first integer feasible solution (Zinc)
+	GRBEnv myEnv = model->getEnv();
+	myEnv.set(GRB_IntParam_Method, GRB_METHOD_BARRIER);
+	myEnv.set(GRB_IntParam_MIPFocus, 0.5);
+	myEnv.set(GRB_IntParam_SolutionLimit, 1);
+	myEnv.set(GRB_DoubleParam_Heuristics, 1);
+	myEnv.set(GRB_DoubleParam_ImproveStartTime,0.0);
+
+	//Create tempNode
+	Node *tempNode = new Node();
+	tempNode->setModel(model);
+	tempNode->setVHash(vHash);
+	tempNode->setCHash(cHash);
+	int s = tempNode->solve();
+	tempNode->printSolution();
+
+	zInc = model->get(GRB_DoubleAttr_ObjVal);
+	cout << "Solution status: " << s << " - ZINC = " << zInc << endl;
+
+	delete tempNode;
+
+	//Build Explicit DWM model
+	buildDWM();
+	Node *rootNode = new Node();
+
 
 	//Create root node
-	Node *rootNode = new Node();
+	/*Node *rootNode = new Node();
 	rootNode->setModel(model);
 	rootNode->setVHash(vHash);
-	rootNode->setCHash(cHash);
+	rootNode->setCHash(cHash);*/
 
 	//Run Branch and Price (DFS)
-	int status = BaP(rootNode);
+	//int status = BaP(rootNode);
 
 	return status;
 }
 
 void Solver::buildInitialModel()
 {
+	Job *job;
+	Equipment *e;
+	int tInit, tEnd;
+
 	//----------------
 	//CREATE VARIABLES
 	//----------------
+	Variable v, y, x, w;
 
 	//yVars
 	for(int j=1; j < data->numJobs; j++){ //job 0 does not have an Y var
-		Job *job = data->jobs[j];
-		for(int t=job->getFirstStartTimePeriod(); t <= job->getLastStartTimePeriod(); t++){
-			Variable y;
+		job = data->jobs[j];
+		tInit = job->getFirstStartTimePeriod();
+		tEnd = job->getLastStartTimePeriod();
+
+		for(int t=tInit; t <= tEnd; t++){
+			y.reset();
 			y.setType(V_Y);
 			y.setStartJob(j);
 			y.setTime(t);
 
 			vHash[y] = true;
-			model->addVar(0.0,1.0,0.0,GRB_CONTINUOUS,y.toString());
+			model->addVar(0.0,1.0,0.0,GRB_INTEGER,y.toString());
 		}
 	}
 
-	//xVars and bAuxVars
+	//xVars and wVars
 	queue<Vertex*> myQueue;
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
-		Equipment *e = data->equipments[eqType];
+		e = data->equipments[eqType];
 
 		//Make a BFS over the problem network
 		Vertex *o, *d;
@@ -98,65 +135,352 @@ void Solver::buildInitialModel()
 		myQueue.push(o);
 
 		while(myQueue.size() > 0){
-			o = myQueue.front();
-			Job *oJob = data->jobs[o->getJob()];
-			int sourceReq = oJob->getEquipmentTypeRequired(eqType);
+			o = myQueue.front();			
+			myQueue.pop();
 
-			if(!visited[o->getJob()][o->getTime()]){
-				visited[o->getJob()][o->getTime()] = true;
+			int oJob = o->getJob();
+			int oTime = o->getTime();
+
+			int sourceReq = data->jobs[oJob]->getEquipmentTypeRequired(eqType);
+
+			if(!visited[oJob][oTime]){
+				visited[oJob][oTime] = true;
 
 				//Iterate through adjacence list for job o and eqType
 				vector<Vertex*>::const_iterator it = o->getAdjacenceList(eqType).begin();
-				for(; it != o->getAdjacenceList(eqType).end(); it++)
-				{
+				vector<Vertex*>::const_iterator eit = o->getAdjacenceList(eqType).end();
+				for(; it != eit; it++){
 					d = (*it);
-					Job *dJob = data->jobs[d->getJob()];
-					int destinationReq = dJob->getEquipmentTypeRequired(eqType);
-					double transitionTime = e->getTransitionTime(o->getJob(),d->getJob());
+					int dJob = d->getJob();
+					int dTime = d->getTime();
+
+					int destinationReq = data->jobs[dJob]->getEquipmentTypeRequired(eqType);
+					double transitionTime = e->getTransitionTime(oJob,dJob);
 
 					//CREATE VARS
-					if(o->getJob() != d->getJob()) //not waiting
-					{
+					if(oJob != dJob){ //not waiting					
 						//create xVar
-						Variable x;
+						x.reset();
 						x.setType(V_X);
 						x.setStartJob(o->getJob());
 						x.setEndJob(d->getJob());
 						x.setTime(o->getTime());
+						x.setArrivalTime(d->getTime());
 						x.setEquipmentTipe(eqType);
 
 						if(vHash.find(x) == vHash.end()){
 							vHash[x] = true;
-							model->addVar(0.0,1.0,ceil(transitionTime),GRB_CONTINUOUS, x.toString());
-						}
+							model->addVar(0.0,1.0,transitionTime,GRB_INTEGER, x.toString());
+						}					
+					}else{
+						w.reset();
+						w.setType(V_W);
+						w.setStartJob(o->getJob());
+						w.setTime(o->getTime());
+						w.setEquipmentTipe(eqType);
 
-						//create bAuxVar
-						Variable b;
-						b.setType(V_BAUX);						
-						b.setStartJob(o->getJob());
-						b.setEndJob(d->getJob());
-						b.setTime(o->getTime());
-						b.setEquipmentTipe(eqType);
-
-						if(vHash.find(b) == vHash.end()){
-							vHash[b] = true;
-							model->addVar(0.0,1.0,bigM,GRB_CONTINUOUS, b.toString());
+						if(vHash.find(w) == vHash.end()){
+							vHash[w] = true;
+							model->addVar(0.0,1.0,0.0,GRB_INTEGER,w.toString());
 						}
-						
-					}				
+					}
 					myQueue.push(d);
 				}
 			}
-			myQueue.pop();
 		}
 		visited.clear();
+	}
+	
+	model->update();
+	//----------------------
+
+	//----------------------
+	//CREATE CONSTRAINTS
+	//----------------------
+	GRBVar var1, var2;
+	Constraint c1, c2;
+
+	//Cover Constraints
+	for(int j=1; j < data->numJobs; j++){
+		GRBLinExpr expr = 0;
+
+		c1.reset();
+		c1.setType(C_COVER);
+		c1.setStartJob(j);
+
+		if(cHash.find(c1) == cHash.end()){
+			for(int t=0; t <= data->horizonLength; t++){
+				y.reset();
+				y.setType(V_Y);
+				y.setStartJob(j);
+				y.setTime(t);
+
+				if(vHash.find(y) != vHash.end()){
+					var1 = model->getVarByName(y.toString());
+					expr += var1;
+				}
+			}
+			cHash[c1] = true;
+			model->addConstr(expr == 1, c1.toString());
+		}
+	}
+
+	//Synchronization Constraints
+	for(int j=1; j < data->numJobs; j++){
+		job = data->jobs[j];
+		tInit = job->getFirstStartTimePeriod();
+		tEnd = job->getLastStartTimePeriod();
+		for(int t=tInit; t <= tEnd; t++){
+			//Get y variable
+			y.reset();
+			y.setType(V_Y);
+			y.setStartJob(j);
+			y.setTime(t);
+
+			if(vHash.find(y) == vHash.end()) continue; //job cannot be attended at time period t, so go to t+1
+			var1 = model->getVarByName(y.toString());
+
+			for(int eqType=0; eqType < data->numEquipments; eqType++){
+				//Verify that job j requires eqType
+				if(job->getEquipmentTypeRequired(eqType) <= 0) continue;				
+
+				c1.reset();
+				c1.setType(C_SYNCH);
+				c1.setStartJob(j);
+				c1.setTime(t);
+				c1.setEquipmentType(eqType);
+
+				if(cHash.find(c1) == cHash.end()){
+					GRBLinExpr expr = 0;				
+					expr -= var1;
+
+					for(int i=0; i < data->numJobs; i++){
+						//Get x Variable
+						x.reset();
+						x.setType(V_X);
+						x.setStartJob(j);
+						x.setEndJob(i);
+						x.setTime(t);
+						x.setEquipmentTipe(eqType);
+
+						if(vHash.find(x) != vHash.end()){
+							var2 = model->getVarByName(x.toString());
+							expr += var2;
+						}
+					}
+
+					cHash[c1] = true;
+					model->addConstr(expr == 0, c1.toString());
+				}
+			}
+		}
+	}
+
+	//Fow Init constraints
+	for(int eqType=0; eqType < data->numEquipments; eqType++){
+		e = data->equipments[eqType];
+		
+		c1.reset();
+		c1.setType(C_OVF_FLOW_INIT);
+		c1.setEquipmentType(eqType);
+
+		if(cHash.find(c1) != cHash.end()) continue;
+
+		GRBLinExpr expr = 0;
+
+		for(int j=1; j < data->numJobs; j++){
+			x.reset();
+			x.setType(V_X);
+			x.setStartJob(0);
+			x.setEndJob(j);
+			x.setTime(0);
+			x.setEquipmentTipe(eqType);
+
+			if(vHash.find(x) != vHash.end()){
+				var1 = model->getVarByName(x.toString());
+				expr += var1;				
+			}
+		}
+
+		cHash[c1] = true;
+		model->addConstr(expr == e->getNumMachines(), c1.toString());
+	}
+	
+	//Create Flow constraints
+	for(int eqType=0; eqType < data->numEquipments; eqType++){
+		e = data->equipments[eqType];
+		for(int j=1; j<data->numJobs; j++){
+			job = data->jobs[j];
+
+			if(job->getEquipmentTypeRequired(eqType) <= 0) continue;
+
+			tInit = min(job->getFirstStartTimePeriod(),(int)e->getTransitionTime(0,j));
+			tEnd = job->getLastStartTimePeriod();
+
+			for(int t = tInit; t <= tEnd; t++){
+				c1.reset();
+				c1.setType(C_OVF_FLOW);
+				c1.setStartJob(j);
+				c1.setTime(t);
+				c1.setEquipmentType(eqType);
+
+				if(cHash.find(c1) == cHash.end()){
+					GRBLinExpr expr = 0;
+					cHash[c1] = true;
+					model->addConstr(expr == 0, c1.toString());
+				}
+			}
+		}
+	}
+	model->update();
+
+	//Add variables to flow constraints	
+	GRBConstr flowConstr;
+	VariableHash::iterator vit = vHash.begin();
+	VariableHash::iterator evit = vHash.end();
+
+	for(; vit != evit; vit++){
+		v = vit->first;		
+		int j,i,time1,time2,eqType;
+
+		if(v.getType() == V_X){
+			var1 = model->getVarByName(v.toString());
+
+			j = v.getStartJob();
+			i = v.getEndJob();
+			time1 = v.getTime();
+			time2 = v.getArrivalTime();
+			eqType = v.getEquipmentType();
+
+			//Leaving j, at time1
+			c1.reset();
+			c1.setType(C_OVF_FLOW);
+			c1.setStartJob(j);
+			c1.setTime(time1);
+			c1.setEquipmentType(eqType);
+
+			if(cHash.find(c1) != cHash.end()){
+				flowConstr = model->getConstrByName(c1.toString());
+				model->chgCoeff(flowConstr, var1, 1.0);
+			}
+
+			//Entering i at time2
+			c2.reset();
+			c2.setType(C_OVF_FLOW);
+			c2.setStartJob(i);
+			c2.setTime(time2);
+			c2.setEquipmentType(eqType);
+
+			if(cHash.find(c2) != cHash.end()){
+				flowConstr = model->getConstrByName(c2.toString());
+				model->chgCoeff(flowConstr, var1, -1.0);
+			}
+		}else if(v.getType() == V_W){
+			var1 = model->getVarByName(v.toString());
+
+			j = v.getStartJob();
+			time1 = v.getTime();
+			time2 = time1 + 1;
+			eqType = v.getEquipmentType();
+
+			//leaving j at time1
+			c1.reset();
+			c1.setType(C_OVF_FLOW);
+			c1.setStartJob(j);
+			c1.setTime(time1);
+			c1.setEquipmentType(eqType);
+
+			if(cHash.find(c1) != cHash.end()){
+				flowConstr = model->getConstrByName(c1.toString());
+				model->chgCoeff(flowConstr,var1,1.0);
+			}
+
+			//entering j at time2
+			c2.reset();
+			c2.setType(C_OVF_FLOW);
+			c2.setStartJob(j);
+			c2.setTime(time2);
+			c2.setEquipmentType(eqType);
+
+			if(cHash.find(c2) != cHash.end()){
+				flowConstr = model->getConstrByName(c2.toString());
+				model->chgCoeff(flowConstr,var1,-1.0);
+			}
+		}
+	}
+
+	model->update();
+	//----------------------
+	
+	model->write("modelo_OVF.lp");
+}
+
+void Solver::buildDWM()
+{	
+	
+	GRBVar var1, var2;
+	GRBConstr cons;
+
+	Constraint c;
+	Variable v, b, f;
+
+	//Relax integer variables
+	//Delete w variables
+	VariableHash::iterator vit = vHash.begin();
+	while(vit != vHash.end()){
+		v = vit->first;
+		var1 = model->getVarByName(v.toString());
+
+		if(v.getType() == V_W){ 
+			model->remove(var1);
+			vHash.erase(vit++);
+		}else{
+			if(v.getType() == V_X){
+				//Relax integer x variable
+				var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);				
+			}else if(v.getType() == V_Y){
+				//Relax integer variable
+				var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);
+			}
+			vit++;
+		}
+	}
+
+	//Create bAux vars
+	for(int i=0; i< data->numJobs; i++){
+		for(int j=0; j<data->numJobs; j++){
+			for(int t=0; t < data->horizonLength; t++){
+				for(int eqType = 0; eqType < data->numEquipments; eqType++){
+					v.reset();
+					v.setType(V_X);
+					v.setStartJob(i);
+					v.setEndJob(j);
+					v.setTime(t);
+					v.setEquipmentTipe(eqType);
+
+					if(vHash.find(v) == vHash.end()) continue;
+
+					b.reset();
+					b.setType(V_BAUX);
+					b.setStartJob(i);
+					b.setEndJob(j);
+					b.setTime(t);
+					b.setEquipmentTipe(eqType);
+
+					if(vHash.find(b) == vHash.end()){
+						vHash[b] = true;
+						model->addVar(0.0,1.0,bigM,GRB_CONTINUOUS,b.toString());
+					}
+				}
+			}
+		}
 	}
 
 	//fAuxVar
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
 
-		Variable f;
+		f.reset();
 		f.setType(V_FAUX);
 		f.setEquipmentTipe(eqType);
 
@@ -167,95 +491,39 @@ void Solver::buildInitialModel()
 	model->update();
 	//----------------------
 
+	//-----------------------------
+	//ERASE SUBPROBLEM CONSTRAINTS
+	//-----------------------------
+	ConstraintHash::iterator cit = cHash.begin();
+
+	while(cit != cHash.end()){
+		c = cit->first;
+
+		if(c.getType() == C_OVF_FLOW || c.getType() == C_OVF_FLOW_INIT){
+			cons = model->getConstrByName(c.toString());
+			cHash.erase(cit++);
+			model->remove(cons);
+		}else{
+			cit++;
+		}
+	}
+	model->update();
+	//----------------------
+
 	//----------------------
 	//CREATE CONSTRAINTS
 	//----------------------
-	GRBVar var1, var2;
-
-	//Cover Constraints
-	for(int j=1; j < data->numJobs; j++){
-		GRBLinExpr expr = 0;
-
-		Constraint c;
-		c.setType(C_COVER);
-		c.setStartJob(j);
-
-		if(cHash.find(c) == cHash.end()){
-			for(int t=0; t <= data->horizonLength; t++){
-				Variable y;
-				y.setType(V_Y);
-				y.setStartJob(j);
-				y.setTime(t);
-
-				if(vHash.find(y) != vHash.end()){
-					var1 = model->getVarByName(y.toString());
-					expr += var1;
-				}
-			}
-			cHash[c] = true;
-			model->addConstr(expr == 1, c.toString());
-		}
-	}
-
-	//Synchronization Constraints
-	for(int j=1; j < data->numJobs; j++){
-		Job *job = data->jobs[j];
-		for(int t=job->getFirstStartTimePeriod(); t <= job->getLastStartTimePeriod(); t++){
-			GRBLinExpr expr = 0;
-
-			//Get y variable
-			Variable y;
-			y.setType(V_Y);
-			y.setStartJob(j);
-			y.setTime(t);
-
-			if(vHash.find(y) == vHash.end()) continue; //job cannot be attended at time period t, so go to t+1
-
-			var1 = model->getVarByName(y.toString());
-			expr -= var1;
-
-			for(int eqType=0; eqType < data->numEquipments; eqType++){
-				//Verify that job j requires eqType
-				if(job->getEquipmentTypeRequired(eqType) <= 0) continue;				
-
-				Constraint c;
-				c.setType(C_SYNCH);
-				c.setStartJob(j);
-				c.setTime(t);
-				c.setEquipmentType(eqType);
-
-				if(cHash.find(c) == cHash.end()){
-					for(int i=0; i < data->numJobs; i++){
-						//Get x Variable
-						Variable v;
-						v.setType(V_X);
-						v.setStartJob(j);
-						v.setEndJob(i);
-						v.setTime(t);
-						v.setEquipmentTipe(eqType);
-
-						if(vHash.find(v) != vHash.end()){
-							var2 = model->getVarByName(v.toString());
-							expr += var2;
-						}
-					}
-					cHash[c] = true;
-					model->addConstr(expr == 0, c.toString());
-				}
-			}
-		}
-	}
-
 	//Cardinality constraints
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
 		
 		GRBLinExpr expr = 0;
-		Constraint c;
+
+		c.reset();
 		c.setType(C_CARD);
 		c.setEquipmentType(eqType);
 
-		Variable f;
+		f.reset();
 		f.setType(V_FAUX);
 		f.setEquipmentTipe(eqType);
 
@@ -275,21 +543,21 @@ void Solver::buildInitialModel()
 				for(int eqType=0; eqType < data->numEquipments; eqType++){
 					GRBLinExpr expr = 0;
 
-					Constraint c;
+					c.reset();
 					c.setType(C_EXPLICIT);
 					c.setStartJob(i);
 					c.setEndJob(j);
 					c.setTime(t);
 					c.setEquipmentType(eqType);
 
-					Variable v;
+					v.reset();
 					v.setType(V_X);
 					v.setStartJob(i);
 					v.setEndJob(j);
 					v.setTime(t);
 					v.setEquipmentTipe(eqType);
 
-					Variable b;
+					b.reset();
 					b.setType(V_BAUX);
 					b.setStartJob(i);
 					b.setEndJob(j);
@@ -305,6 +573,7 @@ void Solver::buildInitialModel()
 						cHash[c] = true;
 						model->addConstr(expr == 0, c.toString());
 					}
+
 				}
 			}
 		}
@@ -312,14 +581,13 @@ void Solver::buildInitialModel()
 
 	model->update();
 	//----------------------
-	
-	model->write("modelo.lp");
+
+	model->write("modeloEDWM.lp");
 }
 
 int Solver::solveLPByColumnGeneration(Node *node)
 {
 	int status = GRB_INPROGRESS;
-	Route *myRoute;
 
 	//Reset subproblem solver and collapse vertices
 	spSolver->reset();
@@ -334,12 +602,13 @@ int Solver::solveLPByColumnGeneration(Node *node)
 		if(status != GRB_OPTIMAL)
 			return status; 
 
-		node->printSolution();
 		int sw = 0;		
+		//node->printSolution();
 
 		//Generate routes for each equipment type
 		for(int eqType = 0; eqType < data->numEquipments; eqType++){
 			spSolver->solve(node, eqType);
+			double routeUseRC = node->getRouteUseReduzedCost(eqType);	
 
 			if(spSolver->isInfeasible()){
 				return GRB_INFEASIBLE;
@@ -347,30 +616,26 @@ int Solver::solveLPByColumnGeneration(Node *node)
 
 			//Add route(s) to the model
 			vector<Route*>::iterator rit = spSolver->routes.begin();
-			for(; rit != spSolver->routes.end(); rit++){
-				myRoute = (*rit);
-				cout << myRoute->toString() << endl;
+			vector<Route*>::iterator eit = spSolver->routes.end();
+			for(; rit != eit; rit++){				
+				Route *myRoute = (*rit);
 				double routeCost = myRoute->getCost();
-				double verifiedCost = node->verifyRouteCost(myRoute);
-				cout << endl;
-				cout << "Verification: " << routeCost << " vs " << verifiedCost << endl;
-				cout << endl;
-				if(routeCost != verifiedCost){
-					cout << "ERROOOOOO: " << routeCost << " vs " << verifiedCost << endl;
-					getchar();
-				}
-				routeCost -= node->getRouteReducedCost(eqType);
-				cout << routeCost << endl;
+				routeCost -= routeUseRC;
 			
 				if(routeCost >= 0) continue; //not a good route.
 
-				myRoute->setRouteNumber(routeCounter++);
+				myRoute->setCost(routeCost);
+				myRoute->setRouteNumber(routeCounter++);				
+				cout << myRoute->toString() << endl;
+
 				if(node->addColumn(myRoute)){
 					sw = 1;
 				}else{
 					cout << "Error: column " << myRoute->getRouteNumber() << "," 
 						<< myRoute->getEquipmentType() << " already existed in node " << node->getNodeId() << endl;
 				}
+
+				delete myRoute;
 			}
 		}
 
@@ -380,13 +645,17 @@ int Solver::solveLPByColumnGeneration(Node *node)
 		}
 	}
 
+	node->printSolution();
 	return status;
 }
 
 int Solver::BaP(Node *node)
 {
 	//TODO: implement Branch and Price method.
+	exploredNodes = 0;
+	node->setNodeId(exploredNodes++);
 	int result = solveLPByColumnGeneration(node);
+	cout << "Columns generated for node " << node->getNodeId() << ": " << node->getRouteCount() << endl;
 
 	return result;
 }
@@ -407,19 +676,16 @@ void Solver::buildProblemNetwork()
 		s = myQueue.front();
 		Job *sJob = data->jobs[s->getJob()];
 		
-		for(int eqType=0; eqType < data->numEquipments; eqType++)
-		{
+		for(int eqType=0; eqType < data->numEquipments; eqType++){
 			Equipment *e = data->equipments[eqType];
 
 			//Verify equipment requirement of job s
 			if(s->getJob() != 0 && !sJob->getEquipmentTypeRequired(eqType)) continue;	
 
 			//Verify that vertex s belongs to the time window of sJob (sJob can be attended at this time)
-			if(s->getTime() >= sJob->getFirstStartTimePeriod() && s->getTime() <= sJob->getLastStartTimePeriod())
-			{
+			if(s->getTime() >= sJob->getFirstStartTimePeriod() && s->getTime() <= sJob->getLastStartTimePeriod()){
 				//create adjacence list for vertex s (other Jobs)
-				for(int j=1; j<data->numJobs; j++)
-				{
+				for(int j=1; j<data->numJobs; j++){
 					Job *jJob = data->jobs[j];
 
 					//Verify is not the same job
@@ -429,7 +695,7 @@ void Solver::buildProblemNetwork()
 					if(!jJob->getEquipmentTypeRequired(eqType)) continue;			
 				
 					//Verify time window compatibility
-					int arriveTime = s->getTime() + sJob->getServiceTime() + ceil(e->getTransitionTime(s->getJob(),j));
+					int arriveTime = s->getTime() + sJob->getServiceTime() + e->getTransitionTime(s->getJob(),j);
 					if(arriveTime > jJob->getLastStartTimePeriod()) continue;
 
 					if(data->problemNetwork[j][arriveTime] == nullptr){
@@ -446,8 +712,7 @@ void Solver::buildProblemNetwork()
 				}
 
 				//Add return to depot to the adjacence list of job s
-				if(s->getJob() != 0)
-				{
+				if(s->getJob() != 0){
 					if(data->problemNetwork[0][data->horizonLength] == nullptr){
 						data->problemNetwork[0][data->horizonLength] = new Vertex(data->numEquipments);
 						data->problemNetwork[0][data->horizonLength]->setJob(0);

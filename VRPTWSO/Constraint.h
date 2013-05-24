@@ -4,6 +4,14 @@
 #include <map>
 #include <hash_map>
 
+#ifdef DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
 
 /** All constraint types */
 enum ConstraintType
@@ -11,6 +19,8 @@ enum ConstraintType
    C_ERROR = 0,
    C_COVER,
    C_SYNCH,
+   C_OVF_FLOW_INIT,
+   C_OVF_FLOW,
    C_CARD,
    C_EXPLICIT,
    C_BRANCH

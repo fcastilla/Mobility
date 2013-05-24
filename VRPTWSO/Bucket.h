@@ -2,6 +2,14 @@
 
 #include <vector>
 
+#ifdef DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
 using namespace std;
 
 class Label;
@@ -89,14 +97,14 @@ public:
 	~Bucket(){ reset(); }
 
 	void addLabel(Label *l){ labels.push_back(l); }
-	virtual void evaluate(const vector<Label*> &oLabels, double rCost, bool fix) = 0;
+	virtual void evaluate(vector<Label*> oLabels, double rCost, bool fix) = 0;
 	virtual Label *getBestLabel() = 0;
 
 	//GET METHODS
 	Bucket *getSuccessor(){ return successor; }
 	int getJob(){ return job; }
 	int getTime(){ return time; }
-	vector<Label *> &getLabels(){ return labels; }
+	vector<Label *> getLabels(){ return labels; }
 
 	//SET METHODS
 	void setJob(int j){ job = j; }
@@ -117,7 +125,7 @@ class QRouteBucket : public Bucket
 {
 public:
 	//Interface methods
-	void evaluate(const vector<Label*> &oLabels, double rCost, bool fix);
+	void evaluate(vector<Label*> oLabels, double rCost, bool fix);
 	Label *getBestLabel();
 };
 
@@ -125,6 +133,6 @@ class QRouteNoLoopBucket : public Bucket
 {
 public:
 	//Interface methods
-	void evaluate(const vector<Label*> &oLabels, double rCost, bool fix);
+	void evaluate(vector<Label*> oLabels, double rCost, bool fix);
 	Label *getBestLabel();
 };

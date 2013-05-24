@@ -6,6 +6,14 @@
 
 #include <sstream>
 
+#ifdef DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
 using namespace std;
 
 class Route
@@ -17,24 +25,38 @@ public:
 	vector<Edge*> edges;
 
 	//GET METHODS
-	int getRouteNumber(){ return routeNumber; }
-	int getEquipmentType(){ return eqType; }
-	double getCost(){ return cost; }
+	int getRouteNumber() const{ return routeNumber; }
+	int getEquipmentType() const{ return eqType; }
+	double getCost() const{ return cost; }
 
 	//SET METHODS
 	void setRouteNumber(int num){ routeNumber = num; }
 	void setCost(double c){ cost = c; }
 
+	//OPERATORS
+	bool operator<(const Route& other){
+		if(this->getCost() < other.getCost())
+			return true;
+		else if(other.getCost() < this->getCost())
+			return false;
+
+		if(this->getRouteNumber() < other.getRouteNumber())
+			return true;
+
+		return false;
+	}
+
 	//OTHER
 	string toString(){ 
 		stringstream s;
-		s << "Route " << routeNumber << " - Cost: " << cost << " - Route: ";
+		s << "Route " << routeNumber << " | Cost: " << cost << " | Route: ";
+		Edge *myEdge;
 		vector<Edge*>::reverse_iterator it = edges.rbegin();
 		for(; it != edges.rend(); it++){
-			Edge *myEdge = (*it);			
-			s << "(" << myEdge->getStartJob() << "," << myEdge->getEndJob() << "," << myEdge->getTime() << ") ->";
+			myEdge = (*it);			
+			s << myEdge->getStartJob() << ",";
 		}
-
+		s << myEdge->getEndJob();
 		return s.str();
 	}
 

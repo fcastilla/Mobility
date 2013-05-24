@@ -1,7 +1,16 @@
 #pragma once
 
 #include <vector>
+#include <math.h>
 using namespace std;
+
+#ifdef DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
 
 class Equipment
 {
@@ -13,7 +22,7 @@ public:
 	//GET METHODS
 	int getEquipmentId() { return id; }
 	int getNumMachines() { return numMachines; }	
-	double getTransitionTime(int i, int j) { return transitionTime[i][j]; }
+	double getTransitionTime(int i, int j) { return ceil(transitionTime[i][j]); }
 	double getMaxTransitionTime() { return maxTransitionTime;}
 	
 	//SET METHODS

@@ -4,6 +4,9 @@
 #include "Node.h"
 #include "Variable.h"
 #include "Constraint.h"
+
+#include <iostream>
+#include <iomanip>
 #include <queue>
 
 SubproblemSolver::SubproblemSolver(ProblemData *d, SubproblemType m) : data(d), method(m)
@@ -75,11 +78,11 @@ void SubproblemSolver::reset()
 
 void SubproblemSolver::collapseVertices(Node *node, int eqType)
 {
+	Variable v;
+
 	infeasible = false;
 	fixatedVars.clear();
 
-	Variable v;
-	VariableHash::iterator vit;
 	queue<Vertex*> myQueue;	
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
@@ -94,33 +97,38 @@ void SubproblemSolver::collapseVertices(Node *node, int eqType)
 		while(myQueue.size() > 0){
 			o = myQueue.front();			
 			myQueue.pop();
+			int oJob = o->getJob();
+			int oTime = o->getTime();
 
-			if(!visited[o->getJob()][o->getTime()]){
-				visited[o->getJob()][o->getTime()] = true;
+			if(!visited[oJob][oTime]){
+				visited[oJob][oTime] = true;
 
 				//Iterate through adjacence list for job o and eqType
 				vector<Vertex*>::const_iterator it = o->getAdjacenceList(eqType).begin();
-				for(; it != o->getAdjacenceList(eqType).end(); it++){
+				vector<Vertex*>::const_iterator eit = o->getAdjacenceList(eqType).end();
+				for(; it != eit; it++){
 					d = (*it);
+					int dJob = d->getJob();
+					int dTime = d->getTime();
 
-					if(o->getJob() != d->getJob()){ //not waiting
+					if(oJob != dJob){ //not waiting
 						//Verify associated variable bound
 						v.reset();
 						v.setType(V_X);
-						v.setStartJob(o->getJob());
-						v.setEndJob(d->getJob());
-						v.setTime(o->getTime());
+						v.setStartJob(oJob);
+						v.setEndJob(dJob);
+						v.setTime(oTime);
 						v.setEquipmentTipe(eqType);
 
 						double lb = node->getVarLB(v);
 						//If variable is fixated to 1, then collapse associated vertices (buckets)
 						if(lb == 1){
 							//"Colapse" associated vertices 
-							fMatrix[o->getJob()][o->getTime()]->setSuccessor(fMatrix[d->getJob()][d->getTime()]);
+							fMatrix[oJob][oTime]->setSuccessor(fMatrix[dJob][dTime]);
 
 							//Verify Conflicts (for the same job)
-							fixatedVars[o->getJob()] ++;
-							if(fixatedVars[o->getJob()] > 1){
+							fixatedVars[oJob] ++;
+							if(fixatedVars[oJob] > 1){
 								infeasible = true;
 								return; //current master node is infeasible
 							}
@@ -137,18 +145,20 @@ void SubproblemSolver::collapseVertices(Node *node, int eqType)
 void SubproblemSolver::updateReducedCostsMatrix(Node *node, int eqType)
 {
 	Variable v;
-	VariableHash::iterator vit;
 
-	Constraint c;
-	ConstraintHash::iterator cit;
+	int oJob, oTime;
+	int dJob, dTime;
+
+	vector<vector<bool>> visited = vector<vector<bool>>(data->numJobs, vector<bool>(data->horizonLength+1,false));
+	vector<Vertex*>::const_iterator it, eit;
 	
 	queue<Vertex*> myQueue;	
+
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
 
 		//Make a BFS over the problem network
-		Vertex *o, *d;
-		vector<vector<bool>> visited = vector<vector<bool>>(data->numJobs, vector<bool>(data->horizonLength+1,false));
+		Vertex *o, *d;		
 
 		o = data->problemNetwork[0][0]; //depot
 		myQueue.push(o);
@@ -157,32 +167,48 @@ void SubproblemSolver::updateReducedCostsMatrix(Node *node, int eqType)
 			o = myQueue.front();			
 			myQueue.pop();
 
-			if(!visited[o->getJob()][o->getTime()]){
-				visited[o->getJob()][o->getTime()] = true;
+			oJob = o->getJob();
+			oTime = o->getTime();
+
+			if(!visited[oJob][oTime]){
+				visited[oJob][oTime] = true;
 
 				//Iterate through adjacence list for job o and eqType
-				vector<Vertex*>::const_iterator it = o->getAdjacenceList(eqType).begin();
-				for(; it != o->getAdjacenceList(eqType).end(); it++){
+				it = o->getAdjacenceList(eqType).begin();
+				eit = o->getAdjacenceList(eqType).end();
+
+				for(; it != eit; it++){
 					d = (*it);
-					int sw = 0;
+					dJob = d->getJob();
 
 					v.reset();
 					v.setType(V_X);
-					v.setStartJob(o->getJob());
-					v.setEndJob(d->getJob());
-					v.setTime(o->getTime());
+					v.setStartJob(oJob);
+					v.setEndJob(dJob);
+					v.setTime(oTime);
 					v.setEquipmentTipe(eqType);
 
-					if(o->getJob() != d->getJob()){ //not waiting
-						double rc = node->getArcReducedCost(v);
-						reducedCosts[o->getJob()][d->getJob()][o->getTime()] = rc;
+					if(oJob != d->getJob()){ //not waiting
+						reducedCosts[oJob][dJob][oTime] = node->getArcReducedCost(v);
 					}
+
 					myQueue.push(d);
 				}
 			}
 		}
 		visited.clear();
 	}	
+
+	/*cout << "Matriz Reducidos: " << endl;
+	for(int i=0; i < data->numJobs; i++){
+		for(int j=0; j < data->numJobs; j++){
+			for(int t=0; t < data->horizonLength; t++){
+				cout << setw(8) << reducedCosts[i][j][t];
+			}
+			cout << endl;
+		}
+		cout << "---------------------------------------" << endl;
+	}*/
 }
 
 void SubproblemSolver::solve(Node *node, int eqType)
@@ -202,7 +228,7 @@ void SubproblemSolver::solve(Node *node, int eqType)
 	int pJob, pTime;
 	
 	vector<Vertex*> incidenceList, adjacenceList;	
-	vector<Vertex*>::iterator itVertex;
+	vector<Vertex*>::iterator itVertex, eitVertex;
 
 	fMatrix[0][0]->addLabel(new Label(0,0,0));
 	for(int t=1; t <= data->horizonLength; t++){
@@ -212,7 +238,8 @@ void SubproblemSolver::solve(Node *node, int eqType)
 				//Node is reachable, iterate through incidence list
 				incidenceList = data->problemNetwork[j][t]->getIncidenceList(eqType);
 				itVertex = incidenceList.begin();
-				for(; itVertex != incidenceList.end(); itVertex++){
+				eitVertex = incidenceList.end();
+				for(; itVertex != eitVertex; itVertex++){
 					p = (*itVertex);
 					pJob = p->getJob();
 					pTime = p->getTime();
@@ -220,8 +247,9 @@ void SubproblemSolver::solve(Node *node, int eqType)
 					if(pJob == j) continue;
 
 					//Evaluate [pJob,pTime] Bucket
-					if(fMatrix[pJob][pTime]->getSuccessor() != nullptr && (fMatrix[pJob][pTime]->getSuccessor()->getJob() != j || fMatrix[pJob][pTime]->getSuccessor()->getTime() != t)) continue;
-					fMatrix[j][t]->evaluate(fMatrix[pJob][pTime]->getLabels(), reducedCosts[pJob][j][pTime], (fMatrix[pJob][pTime]->getSuccessor() == fMatrix[j][t]));
+					//if(fMatrix[pJob][pTime]->getSuccessor() != nullptr && (fMatrix[pJob][pTime]->getSuccessor()->getJob() != j || fMatrix[pJob][pTime]->getSuccessor()->getTime() != t)) continue;
+					//fMatrix[j][t]->evaluate(fMatrix[pJob][pTime]->getLabels(), reducedCosts[pJob][j][pTime], (fMatrix[pJob][pTime]->getSuccessor() == fMatrix[j][t]));
+					fMatrix[j][t]->evaluate(fMatrix[pJob][pTime]->getLabels(), reducedCosts[pJob][j][pTime], false);
 				}
 			}
 
@@ -241,7 +269,6 @@ void SubproblemSolver::solve(Node *node, int eqType)
 
 	Route *myRoute = new Route(eqType);
 	myRoute->setCost(bestLabel->getCost());
-	//TODO: add other dual variable cost to the route
 
 	Label *currentLabel, *previousLabel;
 	currentLabel = bestLabel;

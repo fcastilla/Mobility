@@ -1,59 +1,6 @@
 ORGANIZAR CLASES
 
-Clase Solver
-	
-	METODO SOLVE{
-		- Crear rede do problema
-		- Crear modelo inicial
-		- Crear subproblem solvers
-		- Crear parametros globales:
-			- ZInc = infinity
-			- processedNodes = 0
-			- vector<Node*> solutions;
-			- routeNumber;
-		- Crear rootNode
-			- pasar el modelo inicial
-			- vHash e cHash
-		status = BAP(rootNode);
-		return status;
-	}END SOLVE
-	
-	METODO SolveByCG(*node){
-		end = false;
-		
-		ENQUANTO QUE(!end)
-			cgStatus = node->solve();
-			SE(cgStatus != OPTIMAL)
-				RETURN INFEASIBLE.
-			FIM SE
-						
-			sw = 0
-			PARA CADA TIPO DE EQUIPAMENTO
-				newRoutes = sp->generateColumns(node->getModel(), eqType)
-				SE sp.infeasible 
-					RETURN INFEASIBLE
-				FIM SE
-			FIM PARA
-			PARA CADA ROTA
-				//Adicionar variavel dual faltante custo da rota
-				SE rota.custo >= 0 CONTINUE
-				rota->setRouteNumber(routeNumber++);
-				bools sucess = node->addColumn(rota);
-				SE success
-					sw = 1;
-				ELSE
-					print("Error: column " << rota.routeNumber << "," << rota.eqType << " already existed in node " << node.id);
-				FIM SE
-			FIM PARA
-			
-			SE sw == 0
-				end = true
-			FIM SE
-		FIM ENQUANTO QUE
-		
-		RETURN OTIMO
-	}FIM SolveByCG
-	
+Clase Solver	
 	METODO BAP(*rootNode){
 		pilha.push(rootNode);
 		EM QUANTO QUE  pilha.size() > 0
@@ -106,116 +53,43 @@ Clase Solver
 			delete(node);
 		FIM ENQUANTO QUE
 	}FIM METODO BAP
-				
-Class Variavel
-	- Adicionar campo rank. //OK
-	- Adicionar campo fractionality. //OK
-	- Adicionar campo score //OK
-	- Modificar Hash <Variable, bool> //OK
-	- Comparator de variaveis por fractionality //OK
-	- Comparator de variaveis por Rank //OK
-	- Comparator de variaveis por score. //OK
 
-Class Constraint
-	- Crear tipo BRANCH //OK
-	- Adicionar campo rank //OK
-	- Modificar Hash <Constraint, bool> //OK
-	- Comparator de variaveis por Rank //OK
-	
-Class NODE
-	- Construtor Padrão
-	- Construtor (Node) //clona um node, FAZER COPIA
-	- Destrutor
-		- Apagar vHash, cHash, model e rotas.
-	
-	- int Id
-	- *model
-	- Var hash	(não tem referencia à variavel do modelo, so nome)
-		- Necessaria para percorrer variaveis para fazer node cleaning.
-	- Constr hash (não tem referencia a variavel do model, so nome)
-		- Guardar inteiro (Rank) (possivel uso futuro, adicionar e tirar cortes).
-	- Routes.
-	- Zlp
-	
-	METODO SOLVE(){ //OK
-		int status = model->solve();
-		if(status != OPTIMAL)
-			return status
+ATENCION
+- Crear primera solucion viable con gurobi
+	- SolutionLimit = 1
+	- MipFocus = 1
+	- Heuristics (between 0 and 1) = 1
+	- RINS = 1
+	Crear modelo inicial entero.
+	Resolver y coger la primera solucion viable.
+	Guardar Zinc
+	Construir DWM
+- Crear um epsilon global que debe ser usado em:
+	- IntFeasTol do modelo
+	- Integrality check das variaveis
+	- Custo reduzido da rota?
+	- Dual stabilization 
+	- 
+
+DUAL STABILIZATION
+
+FIX BY REDUCED COST
+- use lagrangian bound:
+	c_red_ijte > z_inc - z_lp - \sum_{e \in tipos} k_e . c_red_min_e
+- apply fication during column generation.
+
+TENTAR RESOLVER INSTANCIA DE 10 CLIENTES
+
+IMPORTANTE: GERAR MAIS DE UMA ROTA.
+
+PRIORIDADES:	
+	- HEURISTIC ZINC (for now, gurobi first inc over ovf formulation)
+	- BUILD DWM MODEL
+	- FIX BY REDUCED COST
+	- MULTIPLE ROUTES	
+	- EPSILON???
+	- DUAL STABILIZATION
 			
-		updateVariables();		
-		return status;
-	}
-	
-	METODO UPDATE VARIABLES(){ //OK
-		PARA CADA Var no vHash
-			SE NÃO Variavel na base
-				Variavel.rank ++;
-			FIM SE
-			Variavel.value = model->getVarByName....
-			Variable.fractionality = abs(value - 0.5);
-		FIM PARA
-	}
-	
-	METODO GETMOSTFRACTIONAL(){ //OK
-		mostFractional = (*vHash.begin())->first;
-		PARA CADA Var do vHash
-			if var.fractionality < mostFracional.fractionality
-				mostFractional = var
-			end if
-		FIM PARA
-		return mostFracional;		
-	}
-	
-	METODO ADDBRANCHCONSTRAINT(Variable v, double rhs){ //OK
-		GRBVar var = ....
-		GRBLinExpr expre += var;
-		model->addConstr...
-	}
-	
-	METODO ADDCOLUMN(rota){ //OK
-		Criar Variable lambda
-		SE lambda não existe no vHash
-			criar variavel lambda no modelo
-			adicionar variavel lambda ao vHash
-			inserir coluna (coeficientes)
-			node.Routes += route
-			sw = 1
-		FIM SE
-	}
-	
-	METODO FIX BY REDUCED COSTS(max){ //OK
-		PARA CADA Variavel Y e X no vHAsh
-			myVar = model->getVar()
-			rc = myVar->getReducedCost();
-			SE rc >= max ENTÃO
-				apagar variavel do modelo
-				apagar variavel do vHash
-			FIM SE
-		FIM PARA					
-	}END FIX BY RC
-	
-	METODO CLEAN(max){
-		cont = 0
-		PARA CADA LAMBDA
-			SE lambda esta na base ENTÃO
-				cont++
-			FIM SE
-		FIM PARA
-		
-		PARA CADA LAMBDA EM VARS (ORDENADAS POR RANK)
-			SE cont < max 
-				cont ++ 
-			ELSE
-				apagar lambda do node-model;
-				apagar lambda do node->vHash
-			FIM SE
-		FIM PARA
-	}FIM CLEAN
-	
-- Subproblem Solver
-	- Recibir modelo master e tipo de equipamento em metodo solve.
-	- Retornar rota(s) sem importar custo reduzido.
-				
 REVISAR
 - Rank de las variables se cera al crear un nodo.
 				
