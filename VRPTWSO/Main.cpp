@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
 	
 	delete mySolver;
 
-	_CrtDumpMemoryLeaks();
+	//_CrtDumpMemoryLeaks();
 
 	getchar();
 	return EXIT_SUCCESS;

@@ -1,6 +1,8 @@
 #pragma once
 
+#include "GlobalParameters.h"
 #include <vector>
+#include <set>
 
 #ifdef DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -40,10 +42,10 @@ public:
 	~Vertex();
 
 	//GET METHODS
-	int getJob(){ return job; }
-	int getTime(){ return time; }
-	const vector<Vertex*> &getAdjacenceList(int eq){ return adjacenceList[eq]; }
-	const vector<Vertex*> &getIncidenceList(int eq){ return incidenceList[eq]; }
+	int getJob() const{ return job; }
+	int getTime() const{ return time; }
+	vector<Vertex*> &getAdjacenceList(int eq){ return adjacenceList[eq]; }
+	vector<Vertex*> &getIncidenceList(int eq){ return incidenceList[eq]; }
 
 	//SET METHODS
 	void setJob(int j){ job = j; }
@@ -51,10 +53,31 @@ public:
 	void addInicidentVertex(int eqType, Vertex *v);
 	void addAdjacentVertex(int eqType, Vertex *v);
 
+
 private:
 	int job, time;
 	vector<vector<Vertex*>> adjacenceList;
 	vector<vector<Vertex*>> incidenceList; //one incidence list per equipment type
+};
+
+class VertexComparator
+{
+public:
+	bool operator()(const Vertex *v1, const Vertex *v2){
+		//Compare by time
+		if(v1->getTime() < v2->getTime())
+			return true;
+		else if(v2->getTime() < v1->getTime())
+			return false;
+
+		//Compare by job
+		if(v1->getJob() < v2->getJob())
+			return true;
+		else if(v2->getTime() < v1->getTime())
+			return false;
+
+		return false;
+	}
 };
 
 class Label
@@ -90,21 +113,44 @@ private:
 	Label *predecessor;
 };
 
+class LabelComparator
+{
+public:
+    bool operator()(const Label *l1, const Label *l2){
+        if(l1->getCost() < l2->getCost())
+			return true;
+		else if(l2->getCost() < l1->getCost())
+			return false;
+
+		if(l1->getJob() < l2->getJob())
+			return true;
+		else if(l2->getJob() < l1->getJob())
+			return false;
+
+		if(l1->getTime() < l2->getTime())
+			return true;
+		else if(l2->getTime() < l1->getTime())
+			return false;
+
+		return false;
+    }
+};
+
 class Bucket
 {
 public:
-	Bucket() : successor(nullptr) { labels = vector<Label*>(); };
+	Bucket(){};
 	~Bucket(){ reset(); }
 
-	void addLabel(Label *l){ labels.push_back(l); }
-	virtual void evaluate(vector<Label*> oLabels, double rCost, bool fix) = 0;
+	void addLabel(Label *l){ labels.insert(l); }
+	virtual void evaluate(set<Label*,LabelComparator> oLabels, double rCost, bool fix) = 0;
 	virtual Label *getBestLabel() = 0;
 
 	//GET METHODS
 	Bucket *getSuccessor(){ return successor; }
 	int getJob(){ return job; }
 	int getTime(){ return time; }
-	vector<Label *> getLabels(){ return labels; }
+	set<Label *,LabelComparator> &getLabels(){ return labels; }
 
 	//SET METHODS
 	void setJob(int j){ job = j; }
@@ -117,22 +163,35 @@ public:
 protected:
 	int job;
 	int time;
-	vector<Label*> labels;
+	set<Label*,LabelComparator> labels;
 	Bucket *successor;
+	GlobalParameters *parameters;
 };
 
 class QRouteBucket : public Bucket
 {
 public:
+	QRouteBucket() { 
+		successor = nullptr;
+		parameters = GlobalParameters::getInstance(); 
+		labels = set<Label*,LabelComparator>();
+	}
+
 	//Interface methods
-	void evaluate(vector<Label*> oLabels, double rCost, bool fix);
+	void evaluate(set<Label*,LabelComparator> oLabels, double rCost, bool fix);
 	Label *getBestLabel();
 };
 
 class QRouteNoLoopBucket : public Bucket
 {
 public:
+	QRouteNoLoopBucket() { 
+		successor = nullptr;
+		parameters = GlobalParameters::getInstance(); 
+		labels = set<Label*,LabelComparator>();
+	}
+
 	//Interface methods
-	void evaluate(vector<Label*> oLabels, double rCost, bool fix);
+	void evaluate(set<Label*,LabelComparator> oLabels, double rCost, bool fix);
 	Label *getBestLabel();
 };

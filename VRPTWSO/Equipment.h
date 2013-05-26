@@ -23,6 +23,7 @@ public:
 	int getEquipmentId() { return id; }
 	int getNumMachines() { return numMachines; }	
 	double getTransitionTime(int i, int j) { return ceil(transitionTime[i][j]); }
+	double getNotRoundedTransitionTime(int i, int j) { return transitionTime[i][j]; }
 	double getMaxTransitionTime() { return maxTransitionTime;}
 	
 	//SET METHODS

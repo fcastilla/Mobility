@@ -4,6 +4,8 @@
 #include <map>
 #include <hash_map>
 
+#include "Route.h"
+
 #ifdef DEBUG
 #define _CRTDBG_MAP_ALLOC
 #include <stdlib.h>
@@ -46,11 +48,12 @@ public:
 	int getTime() const { return time; }
 	int getArrivalTime() const { return arrivalTime; }
 	int getEquipmentType() const { return eqType; }
-	int getRouteNum() const { return routeNum; }
+	int getRouteNumber() const { return routeNumber; }
 	
 	int getRank() const { return *rank; }
 	double getFractionality() const { return *fractionality; }
 	double getScore() const { return *score; }
+	double getReducedCost() const { return *rc; }
 
 	// SET METHODS 
 	void reset();
@@ -61,11 +64,12 @@ public:
 	void setTime(int t) { time = t; }
 	void setArrivalTime(int t){ arrivalTime = t; }
 	void setEquipmentTipe(int e){ eqType = e; }
-	void setRouteNum(int num){ routeNum = num; }
+	void setRouteNumber(int num){ routeNumber = num; }
 
 	void increaseRank() const{ *rank += 1; }
 	void setFractionality(double f) const { *fractionality = f; }
 	void setScore(double s) const { *score = s; }
+	void setReducedCost(double cost) const { *rc = cost; }
 
 	// OPERATORS 
 	//Assignment 
@@ -76,7 +80,7 @@ public:
 	bool operator==(const Variable& var) const;
 
 	//Variable name
-	std::string toString();	
+	std::string toString() const;	
 
 private:
 	VariableType type;
@@ -85,10 +89,11 @@ private:
 	int time;
 	int arrivalTime;
 	int eqType;
-	int routeNum;
+	int routeNumber;
 	int *rank;
 	double *fractionality;
 	double *score;
+	double *rc;
 };
 
 class VariableHasher : public stdext::hash_compare<Variable>

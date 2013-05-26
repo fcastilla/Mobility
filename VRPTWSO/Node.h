@@ -3,6 +3,9 @@
 #include "gurobi_c++.h"
 #include "Variable.h"
 #include "Constraint.h"
+#include "GlobalParameters.h"
+
+#include <map>
 
 #ifdef DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -15,11 +18,12 @@
 using namespace std;
 
 class Route;
+class Solution;
 
 class Node
 {
 public:
-	Node() : Zlp(1e13), nodeId(-1), routeCount(0){};
+	Node();
 	Node(const Node &node);
 	~Node();
 	
@@ -34,12 +38,13 @@ public:
 	double getZLP(){ return Zlp; }
 	double getVarLB(Variable v);
 	double getArcReducedCost(Variable v);
-	double getRouteUseReduzedCost(int eqType);
+	double getArcReducedCost(int sJob, int dJob, int time, int eqType);
+	double getRouteUseReducedCost(int eqType);
 	int getRouteCount(){ return routeCount; }
 
 	//Set Methods
 	void setNodeId(int id){ nodeId = id; }
-	void setModel(GRBModel *m){ model = m; }
+	void setModel(GRBModel *m){	model = new GRBModel(*m); }
 	void setVHash(VariableHash hash){ vHash = hash; }
 	void setCHash(ConstraintHash hash){ cHash = hash; }
 	
@@ -54,10 +59,12 @@ public:
 	void printSolution();
 
 	double verifyRouteCost(Route *r);
+	Solution *getSolution();
 
 private:
 	GRBModel *model;
-	vector<Route*> routes;
+	GlobalParameters *parameters;
+	Solution *solution;
 		
 	int nodeId;
 	double Zlp;

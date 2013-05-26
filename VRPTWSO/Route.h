@@ -5,6 +5,7 @@
 #include "Bucket.h"
 
 #include <sstream>
+#include <iomanip>
 
 #ifdef DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -19,8 +20,14 @@ using namespace std;
 class Route
 {
 public:
+	Route(){}
 	Route(int e) : eqType(e){}
-	~Route(){ edges.clear(); }
+	~Route(){
+		vector<Edge*>::iterator it = edges.begin();
+		for(; it != edges.end(); it++)
+			delete (*it);
+		edges.clear(); 
+	}
 
 	vector<Edge*> edges;
 
@@ -28,19 +35,22 @@ public:
 	int getRouteNumber() const{ return routeNumber; }
 	int getEquipmentType() const{ return eqType; }
 	double getCost() const{ return cost; }
+	double getSolVal() const{ return solVal; }
 
 	//SET METHODS
+	void setEquipmentType(int e){ eqType = e; }
 	void setRouteNumber(int num){ routeNumber = num; }
 	void setCost(double c){ cost = c; }
+	void setSolVal(double val){ solVal = val; }
 
 	//OPERATORS
-	bool operator<(const Route& other){
-		if(this->getCost() < other.getCost())
+	bool operator<(const Route *other){
+		if(this->getCost() < other->getCost())
 			return true;
-		else if(other.getCost() < this->getCost())
+		else if(other->getCost() < this->getCost())
 			return false;
 
-		if(this->getRouteNumber() < other.getRouteNumber())
+		if(this->getRouteNumber() < other->getRouteNumber())
 			return true;
 
 		return false;
@@ -49,18 +59,19 @@ public:
 	//OTHER
 	string toString(){ 
 		stringstream s;
-		s << "Route " << routeNumber << " | Cost: " << cost << " | Route: ";
+		s << "Route:" << setw(8) << routeNumber << " | RCost:" << setw(8) << cost << " | EqType:" << eqType << " = ";
 		Edge *myEdge;
 		vector<Edge*>::reverse_iterator it = edges.rbegin();
 		for(; it != edges.rend(); it++){
 			myEdge = (*it);			
-			s << myEdge->getStartJob() << ",";
+			s << "(" << myEdge->getStartJob() << "," << myEdge->getTime() << ")->";
 		}
-		s << myEdge->getEndJob();
+		s << "(" << myEdge->getEndJob() << ")";
 		return s.str();
 	}
 
 private:
+	double solVal;
 	int routeNumber;
 	int eqType;
 	double cost;

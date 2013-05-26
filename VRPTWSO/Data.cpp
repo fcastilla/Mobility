@@ -149,6 +149,7 @@ void ProblemData::readData(const std::string & fileName)
 
 	//Initialize problem network
 	problemNetwork = vector<vector<Vertex*>>(numJobs, vector<Vertex*>(horizonLength + 1, nullptr));
+	vertexSet = set<Vertex*,VertexComparator>();
 
 	
 }

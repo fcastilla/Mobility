@@ -5,6 +5,7 @@
 #include "Node.h"
 
 #include <sstream>
+#include <iomanip>
 #include <vector>
 #include <queue>
 
@@ -12,17 +13,21 @@ string itos(int i) {stringstream s; s << i; return s.str(); }
 
 Solver::Solver(ProblemData *d) : data(d)
 {
+	//Get global parameters
+	parameters = GlobalParameters::getInstance();
+
 	//Create Gurobi enviroment and model
 	env = new GRBEnv();
-	//env->set(GRB_IntParam_Presolve,GRB_PRESOLVE_OFF);
-	//env->set(GRB_IntParam_OutputFlag,0);
 	model = new GRBModel(*env);	
 
 	//Objective function value of auxiliary variables
-	bigM = 10000;
+	bigM = parameters->getBigM();
 	
 	//Initialize subproblem solver vector
 	spSolver = new SubproblemSolver(data, QROUTE_NOLOOP);	
+
+	//Solutions set
+	solutions = set<Solution*>();
 }
 
 Solver::~Solver()
@@ -45,7 +50,7 @@ int Solver::solve()
 	int status = GRB_INPROGRESS;
 
 	//Global parameters
-	zInc = 10000;
+	ZInc = 1e13;
 	totalNodes = 0;
 	exploredNodes = 0;
 	routeCounter = 0;
@@ -56,40 +61,47 @@ int Solver::solve()
 	//Build the initial model
 	buildInitialModel();
 
-	//Get a first integer feasible solution (Zinc)
+	//Get a first integer feasible solution (ZInc)
 	GRBEnv myEnv = model->getEnv();
 	myEnv.set(GRB_IntParam_Method, GRB_METHOD_BARRIER);
-	myEnv.set(GRB_IntParam_MIPFocus, 0.5);
+	myEnv.set(GRB_IntParam_MIPFocus, 1);
 	myEnv.set(GRB_IntParam_SolutionLimit, 1);
 	myEnv.set(GRB_DoubleParam_Heuristics, 1);
-	myEnv.set(GRB_DoubleParam_ImproveStartTime,0.0);
+	myEnv.set(GRB_IntParam_RINS, 1);
+	myEnv.set(GRB_IntParam_ZeroObjNodes, 1);
+	myEnv.set(GRB_IntParam_PumpPasses, 1);
 
-	//Create tempNode
+	//Create tempNode to get a first ZInc from ovf formulation
 	Node *tempNode = new Node();
 	tempNode->setModel(model);
 	tempNode->setVHash(vHash);
 	tempNode->setCHash(cHash);
+
 	int s = tempNode->solve();
 	tempNode->printSolution();
-
-	zInc = model->get(GRB_DoubleAttr_ObjVal);
-	cout << "Solution status: " << s << " - ZINC = " << zInc << endl;
-
+	ZInc = tempNode->getZLP();
+	cout << "Solution status: " << s << " - ZInc = " << ZInc << endl;
 	delete tempNode;
+
+	//Disable gurobi output
+	myEnv.set(GRB_IntParam_OutputFlag,0);
 
 	//Build Explicit DWM model
 	buildDWM();
+
 	Node *rootNode = new Node();
-
-
-	//Create root node
-	/*Node *rootNode = new Node();
 	rootNode->setModel(model);
 	rootNode->setVHash(vHash);
-	rootNode->setCHash(cHash);*/
+	rootNode->setCHash(cHash);
 
-	//Run Branch and Price (DFS)
-	//int status = BaP(rootNode);
+	//At this point, root node has its own copy of the model
+	delete model;
+	vHash.clear();
+	cHash.clear();
+
+	//Solve DWM model by CG
+	tStart = clock();
+	status = BaP(rootNode);
 
 	return status;
 }
@@ -100,11 +112,16 @@ void Solver::buildInitialModel()
 	Equipment *e;
 	int tInit, tEnd;
 
+	cout << "*******************" << endl;
+	cout << "Creating ovf model." << endl;
+	cout << "*******************" << endl;
+
 	//----------------
 	//CREATE VARIABLES
 	//----------------
 	Variable v, y, x, w;
 
+	cout << "Creating y vars." << endl;
 	//yVars
 	for(int j=1; j < data->numJobs; j++){ //job 0 does not have an Y var
 		job = data->jobs[j];
@@ -123,6 +140,7 @@ void Solver::buildInitialModel()
 	}
 
 	//xVars and wVars
+	cout << "Creating x and w vars." << endl;
 	queue<Vertex*> myQueue;
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		e = data->equipments[eqType];
@@ -147,15 +165,15 @@ void Solver::buildInitialModel()
 				visited[oJob][oTime] = true;
 
 				//Iterate through adjacence list for job o and eqType
-				vector<Vertex*>::const_iterator it = o->getAdjacenceList(eqType).begin();
-				vector<Vertex*>::const_iterator eit = o->getAdjacenceList(eqType).end();
+				vector<Vertex*>::iterator it = o->getAdjacenceList(eqType).begin();
+				vector<Vertex*>::iterator eit = o->getAdjacenceList(eqType).end();
 				for(; it != eit; it++){
 					d = (*it);
 					int dJob = d->getJob();
 					int dTime = d->getTime();
 
 					int destinationReq = data->jobs[dJob]->getEquipmentTypeRequired(eqType);
-					double transitionTime = e->getTransitionTime(oJob,dJob);
+					double transitionTime = e->getNotRoundedTransitionTime(oJob,dJob);
 
 					//CREATE VARS
 					if(oJob != dJob){ //not waiting					
@@ -200,6 +218,7 @@ void Solver::buildInitialModel()
 	GRBVar var1, var2;
 	Constraint c1, c2;
 
+	cout << "Creating cover constraints." << endl;
 	//Cover Constraints
 	for(int j=1; j < data->numJobs; j++){
 		GRBLinExpr expr = 0;
@@ -225,6 +244,7 @@ void Solver::buildInitialModel()
 		}
 	}
 
+	cout << "Creating synchronization constraints." << endl;
 	//Synchronization Constraints
 	for(int j=1; j < data->numJobs; j++){
 		job = data->jobs[j];
@@ -276,6 +296,7 @@ void Solver::buildInitialModel()
 		}
 	}
 
+	cout << "Creating flow init constraints." << endl;
 	//Fow Init constraints
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		e = data->equipments[eqType];
@@ -306,6 +327,8 @@ void Solver::buildInitialModel()
 		model->addConstr(expr == e->getNumMachines(), c1.toString());
 	}
 	
+	cout << "Creating flow constraints." << endl;
+	vector<Vertex*>::iterator it, eit;
 	//Create Flow constraints
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		e = data->equipments[eqType];
@@ -326,6 +349,78 @@ void Solver::buildInitialModel()
 
 				if(cHash.find(c1) == cHash.end()){
 					GRBLinExpr expr = 0;
+
+					//Leaving variables (+)
+					it = data->problemNetwork[j][t]->getAdjacenceList(eqType).begin();
+					eit = data->problemNetwork[j][t]->getAdjacenceList(eqType).end();
+
+					for(; it != eit; it++){
+						int i = (*it)->getJob();
+						
+						if(i != j){ //transition
+							//Get x variable
+							v.reset();
+							v.setType(V_X);
+							v.setStartJob(j);
+							v.setEndJob(i);
+							v.setTime(t);
+							v.setEquipmentTipe(eqType);
+
+							if(vHash.find(v) != vHash.end()){
+								var1 = model->getVarByName(v.toString());
+								expr += var1;
+							}
+						}else{ //waiting
+							//Get w variable
+							v.reset();
+							v.setType(V_W);
+							v.setStartJob(j);
+							v.setTime(t);
+							v.setEquipmentTipe(eqType);
+
+							if(vHash.find(v) != vHash.end()){
+								var1 = model->getVarByName(v.toString());
+								expr += var1;
+							}
+						}
+					}
+
+					//Entering variaveis (-)
+					it = data->problemNetwork[j][t]->getIncidenceList(eqType).begin();
+					eit = data->problemNetwork[j][t]->getIncidenceList(eqType).end();
+
+					for(; it != eit; it++){
+						int i = (*it)->getJob();
+						int t1 = (*it)->getTime();
+
+						if(i != j){ //Transition
+							//Get x variable
+							v.reset();
+							v.setType(V_X);
+							v.setStartJob(i);
+							v.setEndJob(j);
+							v.setTime(t1);
+							v.setEquipmentTipe(eqType);
+
+							if(vHash.find(v) != vHash.end()){
+								var1 = model->getVarByName(v.toString());
+								expr -= var1;
+							}
+						}else{ //Waiting
+							//Get w Variable
+							v.reset();
+							v.setType(V_W);
+							v.setStartJob(j);
+							v.setTime(t1);
+							v.setEquipmentTipe(eqType);
+
+							if(vHash.find(v) != vHash.end()){
+								var1 = model->getVarByName(v.toString());
+								expr -= var1;
+							}
+						}
+					}
+
 					cHash[c1] = true;
 					model->addConstr(expr == 0, c1.toString());
 				}
@@ -333,98 +428,26 @@ void Solver::buildInitialModel()
 		}
 	}
 	model->update();
-
-	//Add variables to flow constraints	
-	GRBConstr flowConstr;
-	VariableHash::iterator vit = vHash.begin();
-	VariableHash::iterator evit = vHash.end();
-
-	for(; vit != evit; vit++){
-		v = vit->first;		
-		int j,i,time1,time2,eqType;
-
-		if(v.getType() == V_X){
-			var1 = model->getVarByName(v.toString());
-
-			j = v.getStartJob();
-			i = v.getEndJob();
-			time1 = v.getTime();
-			time2 = v.getArrivalTime();
-			eqType = v.getEquipmentType();
-
-			//Leaving j, at time1
-			c1.reset();
-			c1.setType(C_OVF_FLOW);
-			c1.setStartJob(j);
-			c1.setTime(time1);
-			c1.setEquipmentType(eqType);
-
-			if(cHash.find(c1) != cHash.end()){
-				flowConstr = model->getConstrByName(c1.toString());
-				model->chgCoeff(flowConstr, var1, 1.0);
-			}
-
-			//Entering i at time2
-			c2.reset();
-			c2.setType(C_OVF_FLOW);
-			c2.setStartJob(i);
-			c2.setTime(time2);
-			c2.setEquipmentType(eqType);
-
-			if(cHash.find(c2) != cHash.end()){
-				flowConstr = model->getConstrByName(c2.toString());
-				model->chgCoeff(flowConstr, var1, -1.0);
-			}
-		}else if(v.getType() == V_W){
-			var1 = model->getVarByName(v.toString());
-
-			j = v.getStartJob();
-			time1 = v.getTime();
-			time2 = time1 + 1;
-			eqType = v.getEquipmentType();
-
-			//leaving j at time1
-			c1.reset();
-			c1.setType(C_OVF_FLOW);
-			c1.setStartJob(j);
-			c1.setTime(time1);
-			c1.setEquipmentType(eqType);
-
-			if(cHash.find(c1) != cHash.end()){
-				flowConstr = model->getConstrByName(c1.toString());
-				model->chgCoeff(flowConstr,var1,1.0);
-			}
-
-			//entering j at time2
-			c2.reset();
-			c2.setType(C_OVF_FLOW);
-			c2.setStartJob(j);
-			c2.setTime(time2);
-			c2.setEquipmentType(eqType);
-
-			if(cHash.find(c2) != cHash.end()){
-				flowConstr = model->getConstrByName(c2.toString());
-				model->chgCoeff(flowConstr,var1,-1.0);
-			}
-		}
-	}
-
-	model->update();
 	//----------------------
 	
 	model->write("modelo_OVF.lp");
 }
 
 void Solver::buildDWM()
-{	
-	
+{		
 	GRBVar var1, var2;
 	GRBConstr cons;
 
 	Constraint c;
 	Variable v, b, f;
 
+	cout << "****************************" << endl;
+	cout << "Creating explicit dwm model." << endl;
+	cout << "****************************" << endl;
+
 	//Relax integer variables
+	
+	cout << "Deleting w (ovf) variables, relaxing y and x variaveis." << endl;
 	//Delete w variables
 	VariableHash::iterator vit = vHash.begin();
 	while(vit != vHash.end()){
@@ -446,6 +469,8 @@ void Solver::buildDWM()
 		}
 	}
 
+	
+	cout << "Creating b auxilaty variables." << endl;
 	//Create bAux vars
 	for(int i=0; i< data->numJobs; i++){
 		for(int j=0; j<data->numJobs; j++){
@@ -475,7 +500,8 @@ void Solver::buildDWM()
 			}
 		}
 	}
-
+	
+	cout << "Creating f auxiliary variables." << endl;
 	//fAuxVar
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
@@ -493,7 +519,8 @@ void Solver::buildDWM()
 
 	//-----------------------------
 	//ERASE SUBPROBLEM CONSTRAINTS
-	//-----------------------------
+	//-----------------------------	
+	cout << "Erasing subproblem constraints (flow)." << endl;
 	ConstraintHash::iterator cit = cHash.begin();
 
 	while(cit != cHash.end()){
@@ -513,6 +540,7 @@ void Solver::buildDWM()
 	//----------------------
 	//CREATE CONSTRAINTS
 	//----------------------
+	cout << "Creating route number constraints." << endl;
 	//Cardinality constraints
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
@@ -534,7 +562,8 @@ void Solver::buildDWM()
 			model->addConstr(expr == e->getNumMachines(), c.toString());
 		}
 	}
-
+	
+	cout << "Creating explicit master constraints." << endl;
 	//Explicit master constraints
 	for(int i=0; i < data->numJobs; i++){
 		Job *iJob = data->jobs[i];
@@ -564,7 +593,6 @@ void Solver::buildDWM()
 					b.setTime(t);
 					b.setEquipmentTipe(eqType);
 
-
 					if(cHash.find(c) == cHash.end() && vHash.find(v) != vHash.end() && vHash.find(b) != vHash.end()){
 						var1 = model->getVarByName(v.toString());
 						var2 = model->getVarByName(b.toString());
@@ -582,82 +610,210 @@ void Solver::buildDWM()
 	model->update();
 	//----------------------
 
-	model->write("modeloEDWM.lp");
+	model->write("modelo_EDWM.lp");
 }
 
-int Solver::solveLPByColumnGeneration(Node *node)
+int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 {
 	int status = GRB_INPROGRESS;
+	double Zlp = 1e13;
+	double lagrangeanBound = 0.0;
+	int fixatedVars;
+	int totalFixatedVars = 0;
+	int rCount;
+	int totalRoutes = 0;
+	double minRouteCost = 0.0;
+	int iteration = 0;
 
 	//Reset subproblem solver and collapse vertices
 	spSolver->reset();
+	Route *myRoute;
+	vector<Route*> generatedRoutes = vector<Route*>();
+	vector<Route*>::iterator rit, eit;
 	//spSolver->collapseVertices();
 
 	//Dynamically solve the model by column generation.
 	bool end = false;
-	while(!end){	
-		//Solve current model		
-		status = node->solve();
+	while(!end){
+		stringstream output;
 
-		if(status != GRB_OPTIMAL)
-			return status; 
+		//Solve current model
+		iteration ++;
+		status = node->solve();	
 
-		int sw = 0;		
-		//node->printSolution();
-
-		//Generate routes for each equipment type
-		for(int eqType = 0; eqType < data->numEquipments; eqType++){
-			spSolver->solve(node, eqType);
-			double routeUseRC = node->getRouteUseReduzedCost(eqType);	
-
-			if(spSolver->isInfeasible()){
-				return GRB_INFEASIBLE;
-			}
-
-			//Add route(s) to the model
-			vector<Route*>::iterator rit = spSolver->routes.begin();
-			vector<Route*>::iterator eit = spSolver->routes.end();
-			for(; rit != eit; rit++){				
-				Route *myRoute = (*rit);
-				double routeCost = myRoute->getCost();
-				routeCost -= routeUseRC;
+		if(status == GRB_OPTIMAL){
+			int sw = 0;		
 			
-				if(routeCost >= 0) continue; //not a good route.
+			rCount = 0;
+			fixatedVars = 0;
+			double Zlp = node->getZLP();
+			lagrangeanBound = ZInc - Zlp;
+			minRouteCost = 0.0;
 
-				myRoute->setCost(routeCost);
-				myRoute->setRouteNumber(routeCounter++);				
-				cout << myRoute->toString() << endl;
-
-				if(node->addColumn(myRoute)){
-					sw = 1;
-				}else{
-					cout << "Error: column " << myRoute->getRouteNumber() << "," 
-						<< myRoute->getEquipmentType() << " already existed in node " << node->getNodeId() << endl;
+			//Generate routes for each equipment type
+			for(int eqType = 0; eqType < data->numEquipments; eqType++){
+				Equipment *e = data->equipments[eqType];				
+				
+				spSolver->solve(node, eqType, 10);
+				if(spSolver->isInfeasible()){
+					return GRB_INFEASIBLE;
 				}
 
-				delete myRoute;
-			}
-		}
+				//Verify that at least 1 route was generated
+				if(spSolver->routes.size() == 0) continue;
 
-		//If no routes where generated, the current lp solution is optimal
-		if(sw == 0){
-			end = true;
+				//Append routes to generated routes vector
+				minRouteCost = spSolver->routes[0]->getCost();
+				generatedRoutes.insert(generatedRoutes.end(),spSolver->routes.begin(),spSolver->routes.end());
+				lagrangeanBound -= (e->getNumMachines() * minRouteCost);
+			}	
+
+			//If no routes where generated, the current lp solution is optimal
+			if(generatedRoutes.size() == 0){
+				end = true;
+			}else{
+				//fix variables by reduced cost.
+				if(iteration % 10 == 0){
+					fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
+					totalFixatedVars += fixatedVars;
+				}
+
+				//Add routes to the model
+				rit = generatedRoutes.begin();
+				eit = generatedRoutes.end();
+				for(; rit != eit; rit++){
+					myRoute = (*rit);
+					myRoute->setRouteNumber(routeCounter++);
+					//cout << myRoute->toString() << endl;
+					if(!node->addColumn(myRoute)){
+						cout << "Error: column " << myRoute->getRouteNumber() << "," 
+							<< myRoute->getEquipmentType() << " already existed in node " << node->getNodeId() << endl;
+					}
+					delete myRoute;
+					rCount ++;
+					totalRoutes ++;
+				}					
+				generatedRoutes.clear();
+			}
+
+			if(iteration % 5 == 0 || end){
+				output << left;
+				output << "| " << "Id: " << setw(4) << node->getNodeId() << " Unexp: " << setw(4) << treeSize << " Iter: " << setw(5) << iteration;
+				output << "| " << "Zlp: " << setw(7) << Zlp << " ZInc: " << setw(7) << ZInc;
+				output << "| " << "Routes: " << setw(5) << rCount << "Total: " << setw(5) << totalRoutes << " MinRC: " << setw(10) << minRouteCost;
+				output << "| " << "LagBound: " << setw(10) << lagrangeanBound << " Fix: " << setw(4) << fixatedVars << " TFix: " << setw(5) << totalFixatedVars;
+				output << "| " << "Time: " << setw(5)  << (double)(clock() - tStart)/CLOCKS_PER_SEC << "s | ";
+
+				cout << output.str() << endl;
+			}
+		}else{ //INFEASIBLE
+			cout << "Infeasible" << endl;
+			return GRB_INFEASIBLE;
 		}
 	}
 
-	node->printSolution();
+	//node->printSolution();
 	return status;
 }
 
 int Solver::BaP(Node *node)
-{
-	//TODO: implement Branch and Price method.
+{	
+	int status = GRB_INPROGRESS;
 	exploredNodes = 0;
-	node->setNodeId(exploredNodes++);
-	int result = solveLPByColumnGeneration(node);
-	cout << "Columns generated for node " << node->getNodeId() << ": " << node->getRouteCount() << endl;
+	
+	vector<Node*> myStack = vector<Node*>();
+	myStack.push_back(node);
+	Node *currentNode;
 
-	return result;
+	string sep = "-------------------------------------------------------------------";
+	cout << sep << endl;
+	cout << "Starting branch and price algorithm. Initial Incumbent: " << ZInc << endl;
+	cout << sep << endl;
+
+	while(myStack.size() > 0){
+		currentNode = myStack.back();
+		myStack.pop_back();
+		exploredNodes++;
+
+		cout << sep << endl;
+		cout << "Starting column generation on node " << exploredNodes << endl;
+
+		currentNode->setNodeId(exploredNodes);
+		status = solveLPByColumnGeneration(currentNode, myStack.size());
+
+		cout << "Column generation on node " << exploredNodes << " completed." << endl;
+		cout << sep << endl;
+
+		if(status != GRB_OPTIMAL){
+			cout << "Node " << exploredNodes << " INFEASIBLE. " << endl;
+			delete currentNode;
+			continue;
+		}else{
+			double Zlp = currentNode->getZLP();
+			if(currentNode->isIntegerSolution()){
+				if(Zlp < ZInc || solutions.size() == 0){
+					Solution *s = currentNode->getSolution();
+					
+					cout << sep << endl;
+					cout << "NEW INCUMBENT FOUND: " << endl;
+					cout << s->toString() << endl;
+					cout << sep << endl;
+
+					solutions.insert(s);
+					ZInc = Zlp;
+				}
+				continue;
+			}else if(ceil(Zlp) >= ZInc && exploredNodes > 1){
+				cout << "Node " << exploredNodes << " PRUNED BY BOUND. " << ceil(Zlp) << " > " << ZInc << endl;
+				delete currentNode;
+				continue;
+			}
+		}
+		
+		//Node cleaning
+		cout << sep << endl;
+		cout << "Cleaning node. " << endl;
+		int cleaned = currentNode->cleanNode(500);
+		cout << cleaned << " routes eliminated." << endl;
+		cout << sep << endl;
+
+		//Fix by reduced costs.
+		cout << sep << endl;
+		cout << "Fixating variables by reduced cost before branching. " << endl;
+		int fix = currentNode->fixVarsByReducedCost(ZInc - currentNode->getZLP());
+		cout << fix << " variables eliminated." << endl;
+		cout << sep << endl;
+
+		//Get branching candidate
+		Variable branchV = currentNode->getMostFractional();
+		cout << sep << endl;
+		cout << "Branching on variable: " << branchV.toString() << endl;
+		cout << sep << endl;
+
+		//Add two nodes to the stack
+		Node *nodeIzq = new Node(*currentNode);
+		Node *nodeDer = new Node(*currentNode);
+
+		nodeIzq->addBranchConstraint(branchV, 0.0);
+		nodeDer->addBranchConstraint(branchV, 1.0);
+
+		myStack.push_back(nodeIzq);
+		myStack.push_back(nodeDer);
+		
+		//parent node not needed anymore
+		delete currentNode;
+	}
+
+	if(solutions.size() > 0){
+		cout << sep << endl;
+		cout << "BEST SOLUTION FOUND: " << endl;
+		cout << (*solutions.begin())->toString() << endl;
+		cout << sep << endl;
+	}else{
+		cout << "ATENTION: No solution found =( " << endl;
+	}
+
+	return status;
 }
 
 void Solver::buildProblemNetwork()
@@ -665,11 +821,14 @@ void Solver::buildProblemNetwork()
 	Vertex *s, *d;
 	queue<Vertex*> myQueue;
 
+	cout << "Creating problem network." << endl;
+
 	s = new Vertex(data->numEquipments);	
 	s->setJob(0);
 	s->setTime(0);
 
 	data->problemNetwork[0][0] = s;
+	data->vertexSet.insert(s);
 	myQueue.push(s);
 
 	while(myQueue.size() > 0){
@@ -695,7 +854,7 @@ void Solver::buildProblemNetwork()
 					if(!jJob->getEquipmentTypeRequired(eqType)) continue;			
 				
 					//Verify time window compatibility
-					int arriveTime = s->getTime() + sJob->getServiceTime() + e->getTransitionTime(s->getJob(),j);
+					int arriveTime = s->getTime() + sJob->getServiceTime() + (int)e->getTransitionTime(s->getJob(),j);
 					if(arriveTime > jJob->getLastStartTimePeriod()) continue;
 
 					if(data->problemNetwork[j][arriveTime] == nullptr){
@@ -703,6 +862,8 @@ void Solver::buildProblemNetwork()
 						data->problemNetwork[j][arriveTime]->setJob(j);
 						data->problemNetwork[j][arriveTime]->setTime(arriveTime);
 						myQueue.push(data->problemNetwork[j][arriveTime]);
+						//Add vertex to topologically ordered set
+						data->vertexSet.insert(data->problemNetwork[j][arriveTime]);
 					}
 
 					d = data->problemNetwork[j][arriveTime];				
@@ -717,6 +878,8 @@ void Solver::buildProblemNetwork()
 						data->problemNetwork[0][data->horizonLength] = new Vertex(data->numEquipments);
 						data->problemNetwork[0][data->horizonLength]->setJob(0);
 						data->problemNetwork[0][data->horizonLength]->setTime(data->horizonLength);
+						//Add vertex to topologically ordered set
+						data->vertexSet.insert(data->problemNetwork[0][data->horizonLength]);
 					}
 					d = data->problemNetwork[0][data->horizonLength];
 					s->addAdjacentVertex(eqType,d);
@@ -733,6 +896,8 @@ void Solver::buildProblemNetwork()
 					data->problemNetwork[s->getJob()][s->getTime()+1]->setJob(s->getJob());
 					data->problemNetwork[s->getJob()][s->getTime()+1]->setTime(s->getTime()+1);
 					myQueue.push(data->problemNetwork[s->getJob()][s->getTime()+1]);
+					//Add vertex to topologically ordered set
+					data->vertexSet.insert(data->problemNetwork[s->getJob()][s->getTime()+1]);
 				}
 				d = data->problemNetwork[s->getJob()][s->getTime()+1];
 

@@ -4,6 +4,11 @@
 #include "Data.h"
 #include "Variable.h"
 #include "Constraint.h"
+#include "Solution.h"
+#include "GlobalParameters.h"
+
+#include <time.h>
+#include <set>
 
 #ifdef DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -38,17 +43,20 @@ public:
 	int solve();
 private:
 	ProblemData *data;	
+	GlobalParameters *parameters;
 	SubproblemSolver *spSolver;
+	set<Solution*> solutions;
+
 	double bigM;
 
 	//Global 
-	double zInc;
+	double ZInc;
 
 	//Statistics
 	int routeCounter;
 	int totalNodes;
 	int exploredNodes;
-	Node* bestSolution;
+	clock_t tStart;
 
 	//Methods
 	void buildProblemNetwork();
@@ -58,5 +66,5 @@ private:
 	
 	int BaP(Node *node);
 	int getFeasibleSolution();
-	int solveLPByColumnGeneration(Node *node);
+	int solveLPByColumnGeneration(Node *node, int treeSize);
 };

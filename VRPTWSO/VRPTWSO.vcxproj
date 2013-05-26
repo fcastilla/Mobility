@@ -22,7 +22,7 @@
     <ProjectGuid>{B499E033-B597-45C8-8935-28B9D5B7A29E}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>VRPTWSO</RootNamespace>
-    <ProjectName>PanamaSolver</ProjectName>
+    <ProjectName>VRPTWSO</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -147,6 +147,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Constraint.cpp" />
+    <ClCompile Include="GlobalParameters.cpp" />
     <ClCompile Include="HashUtil.cpp" />
     <ClCompile Include="Job.cpp" />
     <ClCompile Include="Solver.cpp" />
@@ -162,11 +163,13 @@
     <ClInclude Include="Constraint.h" />
     <ClInclude Include="Data.h" />
     <ClInclude Include="Equipment.h" />
+    <ClInclude Include="GlobalParameters.h" />
     <ClInclude Include="HashUtil.h" />
     <ClInclude Include="Job.h" />
     <ClInclude Include="Location.h" />
-    <ClInclude Include="Solver.h" />
     <ClInclude Include="Node.h" />
+    <ClInclude Include="Solution.h" />
+    <ClInclude Include="Solver.h" />
     <ClInclude Include="Route.h" />
     <ClInclude Include="SubproblemSolver.h" />
     <ClInclude Include="Variable.h" />

@@ -35,7 +35,7 @@ public:
 	vector<Route*> routes;
 
 	void reset();
-	void solve(Node *node, int eqType);
+	void solve(Node *node, int eqType, int maxRoutes);
 	void collapseVertices(Node *node, int eqType);
 	void updateReducedCostsMatrix(Node *node, int eqType);
 	bool isInfeasible(){ return infeasible; }	
@@ -43,10 +43,12 @@ public:
 private:
 	ProblemData * data;
 	SubproblemType method;
+	GlobalParameters *parameters;
 
 	double infinityValue;
 	bool infeasible;
 
+	vector<vector<bool>> visited;
 	vector<vector<vector<double>>> reducedCosts;
 	vector<vector<Bucket*>> fMatrix;
 	vector<int> fixatedVars;

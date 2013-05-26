@@ -12,6 +12,7 @@ Variable::Variable()
 	score = new double();
 	fractionality = new double();
 	rank = new int();
+	rc = new double();
 	reset();
 }
 
@@ -21,6 +22,7 @@ Variable::Variable(const Variable& var)
 	score = new double();
 	fractionality = new double();
 	rank = new int();
+	rc = new double();
 	*this = var;
 }
 
@@ -30,34 +32,38 @@ void Variable::reset()
 	*value = -1.0;
 	*score = 0.0;
 	*fractionality = 1.0;
-	rank = 0;
+	*rc = 0.0;
+	*rank = 0;
 	sJob = -1;
 	eJob = -1;
 	time = -1; 
 	arrivalTime = -1;
 	eqType = -1;
-	routeNum = -1;
+	routeNumber = -1;
 }
 
 Variable::~Variable()
 {
-	//reset();
+	reset();
 	delete value;
 	delete score;
 	delete fractionality;
 	delete rank;
+	delete rc;
 }
 
 Variable& Variable::operator=(const Variable& var)
 {
 	this->type = var.getType();
 	*(this->value) = var.getValue();
+	*(this->fractionality) = var.getFractionality();
+	*(this->rank) = var.getRank();
 	this->sJob = var.getStartJob();
 	this->eJob = var.getEndJob();
 	this->time = var.getTime();
 	this->arrivalTime = var.getArrivalTime();
 	this->eqType = var.getEquipmentType();
-	this->routeNum = var.getRouteNum();
+	this->routeNumber = var.getRouteNumber();
 
 	return *this;
 }
@@ -93,10 +99,10 @@ bool Variable::operator <(const Variable& var) const
 	else if(this->getEquipmentType() > var.getEquipmentType())
 		return false;
 
-	//Compare by route number
-	if(this->getRouteNum() < var.getRouteNum())
+	//Compare by route 
+	if(this->getRouteNumber() < var.getRouteNumber())
 		return true;
-	else if(this->getRouteNum() > var.getRouteNum()) 
+	else if(this->getRouteNumber() > var.getRouteNumber()) 
 		return false;
 	
 	return false;
@@ -107,7 +113,7 @@ bool Variable::operator ==(const Variable& var) const
 	return (!(*this < var) && !(var < *this));
 }
 
-string Variable::toString()
+string Variable::toString() const
 {
 	stringstream str;
 
@@ -123,7 +129,7 @@ string Variable::toString()
 			str << "W_" << sJob << "," << time << "," << eqType;
 			break;
 		case(V_LAMBDA):
-			str << "LAMBDA_" << eqType << "," << routeNum;
+			str << "LAMBDA_" << eqType << "," << routeNumber;
 			break;
 		case(V_FAUX):
 			str << "FAUX_" << eqType;
@@ -178,9 +184,9 @@ size_t VariableHasher::operator()(const Variable& v) const
 	}
 	
 	//add route number contribution
-	if (v.routeNum != -1){
+	if (v.getRouteNumber() != -1){
 		sum *= HASH_PRIME;
-		sum += intHash(v.routeNum);
+		sum += intHash(v.getRouteNumber());
 	}
 
 	return sum;

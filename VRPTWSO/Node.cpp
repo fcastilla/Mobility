@@ -1,6 +1,7 @@
 #include "Node.h"
 #include "Bucket.h"
 #include "Route.h"
+#include "Solution.h"
 
 #include <map>
 #include <hash_map>
@@ -8,17 +9,23 @@
 #include <algorithm>
 #include <vector>
 
-Node::Node(const Node &other) : vHash(other.vHash), cHash(other.cHash), 
-	routes(other.routes), Zlp(1e13), nodeId(-1), solStatus(GRB_LOADED), routeCount(0)
+Node::Node() : Zlp(1e13), nodeId(-1), routeCount(0)
+{
+	parameters = GlobalParameters::getInstance();
+	solution = nullptr;
+}
+
+Node::Node(const Node &other) : vHash(other.vHash), cHash(other.cHash), Zlp(1e13), nodeId(-1), solStatus(GRB_LOADED), routeCount(0)
 {
 	model = new GRBModel(*other.model);
+	parameters = GlobalParameters::getInstance();
+	solution = nullptr;
 }
 
 Node::~Node()
 {
 	vHash.clear();
 	cHash.clear();
-	routes.clear();
 	delete model;
 }
 
@@ -40,42 +47,68 @@ void Node::updateVariables(int status)
 {
 	isInteger = true;
 
-	double val;
+	double val, rc;
 
-	Variable v;
 	GRBVar var;
-
 	VariableHash::iterator vit = vHash.begin();
 	VariableHash::iterator evit = vHash.end();
 
 	for(; vit != evit; vit++){
-		v = vit->first;
-		var = model->getVarByName(v.toString());
+		var = model->getVarByName(vit->first.toString());
 
-		if(status == GRB_OPTIMAL && var.get(GRB_IntAttr_VBasis) != GRB_BASIC)
+		if(status == GRB_OPTIMAL && var.get(GRB_DoubleAttr_X) != 0){
 			vit->first.increaseRank();
+		}		
+
+		if(!model->get(GRB_IntAttr_IsMIP)){
+			rc = var.get(GRB_DoubleAttr_RC);			
+			vit->first.setReducedCost(rc);
+		}
 
 		val = var.get(GRB_DoubleAttr_X);
 		vit->first.setValue(val);
 		vit->first.setFractionality(fabs(val - 0.5));
 
-		if(floor(val) < val) isInteger = false;
+		if(val - floor(val) > parameters->getEpsilon()){
+			isInteger = false;
+		}
 	}
 }
 
 const Variable Node::getMostFractional()
-{
-	Variable mostFractional, v;
-	VariableHash::iterator vit = vHash.begin();
-	VariableHash::iterator evit = vHash.end();
+{	
+	vector<Variable> yFractionalVars = vector<Variable>();
+	vector<Variable> xFractionalVars = vector<Variable>();
+	
+	Variable v;
+	VariableHash::iterator vit;
 
-	for(; vit != evit; vit++){
+	//Try to get any fractional variables
+	for(vit = vHash.begin(); vit != vHash.end(); vit++){
 		v = vit->first;
-		if(v.getFractionality() < mostFractional.getFractionality())
-			mostFractional = v;
+		if(v.getType() == V_Y){
+			//Verify has a fractional value
+			if(v.getFractionality() != 0.5)
+				yFractionalVars.push_back(v);
+		}else if(v.getType() == V_X){
+			if(v.getFractionality() != 0.5)
+				xFractionalVars.push_back(v);
+		}
 	}
 
-	return mostFractional;
+	VariableFractionalityComparator comp;
+
+	//See if there are any fractional Y vars
+	if(yFractionalVars.size() > 0){
+		std::sort(yFractionalVars.begin(),yFractionalVars.end(),comp);
+		return yFractionalVars[0];
+	}else if(xFractionalVars.size() > 0){
+		std::sort(xFractionalVars.begin(),xFractionalVars.end(),comp);
+		return xFractionalVars[0];
+	}
+
+	cout << "ATENTION: No fractional variable found!!! Still not integer solution????" << endl;
+	return v;
 }
 
 bool Node::addBranchConstraint(Variable v, double rhs)
@@ -106,7 +139,7 @@ bool Node::addColumn(Route *route)
 	//Create lambda variable
 	v.reset();
 	v.setType(V_LAMBDA);
-	v.setRouteNum(routeNumber);
+	v.setRouteNumber(routeNumber);
 	v.setEquipmentTipe(eqType);
 
 	if(vHash.find(v) != vHash.end()){
@@ -116,7 +149,7 @@ bool Node::addColumn(Route *route)
 
 	vHash[v] = true;
 	GRBVar lambda = model->addVar(0.0,GRB_INFINITY,0.0,GRB_CONTINUOUS,v.toString());
-	model->update(); //TODO: verify if update is needed at this point.
+	model->update(); 
 
 	//Add column (Card constraints)
 	c1.reset();
@@ -154,30 +187,28 @@ bool Node::addColumn(Route *route)
 		model->chgCoeff(explicitConstr, lambda, -1.0);
 	}
 
-	//Update the model to include new column
 	this->routeCount++;
+
+	//Update the model to include new column
 	model->update();
 	return true;
 }
 
 int Node::fixVarsByReducedCost(double maxRC)
 {
-	double epsilon = 0.000001;
+	double epsilon = 1e-5;
 	int deletedVars = 0;
 	double rc = 0.0;
 
-	maxRC += epsilon;
+	//maxRC += epsilon;
 	
 	GRBVar var;
-	Variable v;
 	VariableHash::iterator vit = vHash.begin();
 
 	while(vit != vHash.end()){
-		v = vit->first;
-		if(v.getType() == V_X || v.getType() == V_Y){
-			var = model->getVarByName(v.toString());
-			rc = var.get(GRB_DoubleAttr_RC);
-			if(rc >= maxRC){
+		if(vit->first.getType() == V_X || vit->first.getType() == V_Y){
+			if(vit->first.getReducedCost() > maxRC){
+				var = model->getVarByName(vit->first.toString());
 				model->remove(var);
 				vHash.erase(vit++);
 				deletedVars++;
@@ -200,19 +231,14 @@ int Node::cleanNode(int maxRoutes)
 
 	GRBVar lambda;
 
-	Variable v;
 	VariableHash::iterator vit = vHash.begin();
 	VariableHash::iterator evit = vHash.end();
 
 	for(; vit != evit; vit++){
-		v = vit->first;
-
-		if(v.getType() == V_LAMBDA){
-			lambda = model->getVarByName(v.toString());
-			if(lambda.get(GRB_IntAttr_VBasis) == GRB_BASIC){
-				cont++;
-			}else{
-				lambdas.push_back(v);
+		if(vit->first.getType() == V_LAMBDA){
+			lambda = model->getVarByName(vit->first.toString());
+			if(lambda.get(GRB_IntAttr_VBasis) != GRB_BASIC){
+				lambdas.push_back(vit->first);
 			}
 		}
 	}
@@ -223,20 +249,19 @@ int Node::cleanNode(int maxRoutes)
 	vector<Variable>::iterator it = lambdas.begin();
 
 	while(it != lambdas.end()){
-		v = (*it);
-
 		if(cont < maxRoutes){
 			cont++;
-			vit++;
 		}else{
-			vit = vHash.find(v);
-			vHash.erase(vit++);			
-			lambda = model->getVarByName(v.toString());
+			vit = vHash.find(*it);
+			vHash.erase(vit);			
+			lambda = model->getVarByName((*it).toString());
 			model->remove(lambda);
 			cont++;
 		}
+		it++;
 	}
 
+	lambdas.clear();
 	model->update();
 	return cont;
 }
@@ -255,8 +280,6 @@ double Node::getVarLB(Variable v)
 
 double Node::getArcReducedCost(Variable v)
 {
-	double rc1, rc2;
-
 	VariableHash::iterator vit = vHash.find(v);
 	if(vit != vHash.end()){ //Variable exist in current model
 		GRBVar myVar = model->getVarByName(v.toString());
@@ -282,7 +305,25 @@ double Node::getArcReducedCost(Variable v)
 	return 1e13;
 }
 
-double Node::getRouteUseReduzedCost(int eqType)
+double Node::getArcReducedCost(int sJob, int dJob, int time, int eqType)
+{
+	Constraint c;
+	c.setType(C_EXPLICIT);
+	c.setStartJob(sJob);
+	c.setEndJob(dJob);
+	c.setTime(time);
+	c.setEquipmentType(eqType);
+	
+	ConstraintHash::iterator cit = cHash.find(c);
+	if(cit != cHash.end()){ //constraint exist
+		GRBConstr myConstr = model->getConstrByName(c.toString());
+		return myConstr.get(GRB_DoubleAttr_Pi); //return shadow price
+	}
+
+	return 1e13;
+}
+
+double Node::getRouteUseReducedCost(int eqType)
 {
 	Constraint c;
 	c.setType(C_CARD);
@@ -295,6 +336,49 @@ double Node::getRouteUseReduzedCost(int eqType)
 	}
 
 	return 1e13;
+}
+
+double Node::verifyRouteCost(Route *r)
+{
+	double cost = 0;
+
+	Variable v;
+	Edge *e;
+	vector<Edge*>::iterator eit = r->edges.begin();
+	for(; eit != r->edges.end(); eit++){
+		e = (*eit);
+		v.reset();
+		v.setType(V_X);
+		v.setStartJob(e->getStartJob());
+		v.setEndJob(e->getEndJob());
+		v.setTime(e->getTime());
+		v.setEquipmentTipe(r->getEquipmentType());
+
+		cost += getArcReducedCost(v);
+	}
+
+	return cost;
+}
+
+Solution* Node::getSolution()
+{
+	if(solution != nullptr)
+		delete solution;
+
+	solution = new Solution();
+
+	//Iterate through lambda variables
+	VariableHash::iterator vit = vHash.begin();
+	for(; vit != vHash.end(); vit++){
+		if(vit->first.getType() == V_X){
+			if(vit->first.getValue() > parameters->getEpsilon()){ //lambda is in current solution
+				//solution->addRoute(vit->first.getRoute());			
+			}
+		}
+	}
+	solution->setSolutionValue(Zlp);
+
+	return solution;
 }
 
 void Node::printSolution()
@@ -318,26 +402,4 @@ void Node::printSolution()
 	}
 	
 	cout << "//------------------------------------------------//" << endl;
-}
-
-double Node::verifyRouteCost(Route *r)
-{
-	double cost = 0;
-
-	Variable v;
-	Edge *e;
-	vector<Edge*>::iterator eit = r->edges.begin();
-	for(; eit != r->edges.end(); eit++){
-		e = (*eit);
-		v.reset();
-		v.setType(V_X);
-		v.setStartJob(e->getStartJob());
-		v.setEndJob(e->getEndJob());
-		v.setTime(e->getTime());
-		v.setEquipmentTipe(r->getEquipmentType());
-
-		cost += getArcReducedCost(v);
-	}
-
-	return cost;
 }

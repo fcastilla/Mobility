@@ -7,6 +7,7 @@
 
 #include <string>
 #include <vector>
+#include <set>
 
 #ifdef DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -33,11 +34,15 @@ struct ProblemData
 	vector<Job*> jobs;
 	vector<Equipment*> equipments;
 
+	int getNumJobs() const{ return numJobs; }
+	int getHorizonLength() const { return horizonLength; }
+
 	//successors of job i on machine e
 	vector<vector<vector<int>>> successors;
 
 	//problem network
 	vector<vector<Vertex*>> problemNetwork;
+	set<Vertex*,VertexComparator> vertexSet;
 
 	void readData(const std::string & inputFileName);
 };
