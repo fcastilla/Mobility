@@ -3,7 +3,6 @@
 #include "gurobi_c++.h"
 #include <map>
 #include <hash_map>
-
 #include "Route.h"
 
 #ifdef DEBUG

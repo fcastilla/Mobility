@@ -22,6 +22,7 @@ class Route
 public:
 	Route(){}
 	Route(int e) : eqType(e){}
+
 	~Route(){
 		vector<Edge*>::iterator it = edges.begin();
 		for(; it != edges.end(); it++)

@@ -37,7 +37,6 @@ public:
 	void reset();
 	void solve(Node *node, int eqType, int maxRoutes);
 	void collapseVertices(Node *node, int eqType);
-	void updateReducedCostsMatrix(Node *node, int eqType);
 	bool isInfeasible(){ return infeasible; }	
 
 private:

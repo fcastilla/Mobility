@@ -1,0 +1,19 @@
+#include "GlobalParameters.h"
+#include <stdio.h>
+
+GlobalParameters* GlobalParameters::instance = NULL;
+
+GlobalParameters::GlobalParameters()
+{
+	bigM = 10000;
+	epsilon = 1e-5;
+	maxRoutesPerIteration = 5;
+}
+
+GlobalParameters* GlobalParameters::getInstance()
+{
+	if(!instance){
+		instance = new GlobalParameters();
+	}
+	return instance;
+}

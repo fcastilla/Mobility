@@ -53,7 +53,7 @@ void Node::updateVariables(int status)
 	VariableHash::iterator vit = vHash.begin();
 	VariableHash::iterator evit = vHash.end();
 
-	for(; vit != evit; vit++){
+	while(vit != evit){
 		var = model->getVarByName(vit->first.toString());
 
 		if(status == GRB_OPTIMAL && var.get(GRB_DoubleAttr_X) != 0){
@@ -72,6 +72,8 @@ void Node::updateVariables(int status)
 		if(val - floor(val) > parameters->getEpsilon()){
 			isInteger = false;
 		}
+
+		vit++;
 	}
 }
 
@@ -167,7 +169,7 @@ bool Node::addColumn(Route *route)
 	Edge *myEdge;
 	GRBConstr explicitConstr;
 	vector<Edge*>::iterator eit = route->edges.begin();
-	for(; eit != route->edges.end(); eit++){
+	while(eit != route->edges.end()){
 		myEdge = (*eit);
 
 		//Explicit constraints
@@ -185,6 +187,8 @@ bool Node::addColumn(Route *route)
 
 		explicitConstr = model->getConstrByName(c2.toString());
 		model->chgCoeff(explicitConstr, lambda, -1.0);
+
+		eit++;
 	}
 
 	this->routeCount++;
@@ -199,8 +203,6 @@ int Node::fixVarsByReducedCost(double maxRC)
 	double epsilon = 1e-5;
 	int deletedVars = 0;
 	double rc = 0.0;
-
-	//maxRC += epsilon;
 	
 	GRBVar var;
 	VariableHash::iterator vit = vHash.begin();
@@ -345,7 +347,7 @@ double Node::verifyRouteCost(Route *r)
 	Variable v;
 	Edge *e;
 	vector<Edge*>::iterator eit = r->edges.begin();
-	for(; eit != r->edges.end(); eit++){
+	while(eit != r->edges.end()){
 		e = (*eit);
 		v.reset();
 		v.setType(V_X);
@@ -355,6 +357,8 @@ double Node::verifyRouteCost(Route *r)
 		v.setEquipmentTipe(r->getEquipmentType());
 
 		cost += getArcReducedCost(v);
+
+		eit++;
 	}
 
 	return cost;
@@ -372,7 +376,7 @@ Solution* Node::getSolution()
 	for(; vit != vHash.end(); vit++){
 		if(vit->first.getType() == V_X){
 			if(vit->first.getValue() > parameters->getEpsilon()){ //lambda is in current solution
-				//solution->addRoute(vit->first.getRoute());			
+				solution->addEdge(vit->first.getStartJob(), vit->first.getEndJob(), vit->first.getTime(), vit->first.getArrivalTime(), vit->first.getEquipmentType());			
 			}
 		}
 	}

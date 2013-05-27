@@ -4,6 +4,7 @@
 #include "Equipment.h"
 #include "Location.h"
 #include "Bucket.h"
+#include "GlobalParameters.h"
 
 #include <string>
 #include <vector>
@@ -34,6 +35,7 @@ struct ProblemData
 	vector<Job*> jobs;
 	vector<Equipment*> equipments;
 
+	GlobalParameters *parameters;
 	int getNumJobs() const{ return numJobs; }
 	int getHorizonLength() const { return horizonLength; }
 
