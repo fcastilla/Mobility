@@ -36,6 +36,9 @@
     <Filter Include="Header Files\Output">
       <UniqueIdentifier>{f3259751-f77c-40f0-8f22-8f867c6e4331}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Output">
+      <UniqueIdentifier>{874693a8-f72d-4702-91d4-f819bb7b4843}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp">
@@ -72,7 +75,7 @@
       <Filter>Source Files\Input</Filter>
     </ClCompile>
     <ClCompile Include="Solution.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\Output</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

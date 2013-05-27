@@ -45,6 +45,7 @@ public:
    int getEndJob() const { return eJob; }
    int getTime() const { return time; }
    int getEquipmentType() const { return eqType; }
+   int getId() const { return id; }
    
    int getRank() const { return *rank; }
 
@@ -55,6 +56,7 @@ public:
    void setEndJob(int e){ eJob = e; }
    void setTime(int t){ time = t; }
    void setEquipmentType(int e){ eqType = e; }
+   void setId(int id){ this->id = id; }
 
    void increaseRank(){ rank++; }
 
@@ -74,6 +76,7 @@ private:
 	int sJob, eJob;
 	int time;
 	int eqType;
+	int id;
 
 	int *rank;
 };

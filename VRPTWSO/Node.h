@@ -6,6 +6,7 @@
 #include "GlobalParameters.h"
 
 #include <map>
+#include <valarray>
 
 #ifdef DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -23,7 +24,7 @@ class Solution;
 class Node
 {
 public:
-	Node();
+	Node(int c, int e);
 	Node(const Node &node);
 	~Node();
 	
@@ -31,16 +32,22 @@ public:
 	int solStatus;
 	
 	VariableHash vHash;
-	ConstraintHash cHash;
+	ConstraintHash cHash;	
+	
+	int cDual, eDual;	
+	void updatePi();
+	double getMaxPiDifference();
 
 	//Get Methods
+	GRBModel *getModel(){ return model; }
 	int getNodeId(){ return nodeId; }	
 	double getZLP(){ return Zlp; }
 	double getVarLB(Variable v);
-	double getArcReducedCost(Variable v);
+	int getRouteCount(){ return routeCount; }
+
 	double getArcReducedCost(int sJob, int dJob, int time, int eqType);
 	double getRouteUseReducedCost(int eqType);
-	int getRouteCount(){ return routeCount; }
+
 
 	//Set Methods
 	void setNodeId(int id){ nodeId = id; }
@@ -72,4 +79,17 @@ private:
 	int routeCount;
 
 	void updateVariables(int status);
+	
+	//dual stabilization	
+	double alpha;
+	void initializePi();
+	void getCurrentPi();
+	void calculateAlphaPi();
+
+	valarray<double> alphaPi_e;
+	valarray<double> feasiblePi_e; //for explicit master constraints
+	valarray<double> currentPi_e; //for explicit master constraints
+	valarray<double> alphaPi_c;
+	valarray<double> feasiblePi_c; //for convex constraints
+	valarray<double> currentPi_c; //for convex constraints
 };

@@ -9,6 +9,7 @@ public:
 	double getBigM(){ return bigM; }
 	double getEpsilon(){ return epsilon; }
 	int getMaxRoutes(){ return maxRoutesPerIteration; }
+	bool useDualStabilization(){ return dualStabilization; }
 
 	int getNumJobs(){ return numJobs; }
 	int getNumEquipments(){ return numEquipments; }
@@ -18,6 +19,7 @@ public:
 	void setBigM(double m){ bigM = m; }
 	void setEpsilon(double e){ epsilon = e; }
 	void setMaxRoutes(int max){ maxRoutesPerIteration = max; }
+	void setDualStabilization(bool opt){ dualStabilization = opt; }
 
 	void setNumJobs(int n){ numJobs = n; }
 	void setNumEquipments(int e){ numEquipments = e; }
@@ -34,4 +36,5 @@ private:
 	double bigM;
 	double epsilon;
 	int maxRoutesPerIteration;
+	bool dualStabilization;
 };

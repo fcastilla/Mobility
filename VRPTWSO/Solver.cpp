@@ -48,6 +48,8 @@ Solver::~Solver()
 int Solver::solve()
 {
 	int status = GRB_INPROGRESS;
+	eDualVars = 0;
+	cDualVars = 0;
 
 	//Global parameters
 	ZInc = 1e13;
@@ -72,7 +74,7 @@ int Solver::solve()
 	myEnv.set(GRB_IntParam_PumpPasses, 1);
 
 	//Create tempNode to get a first ZInc from ovf formulation
-	Node *tempNode = new Node();
+	Node *tempNode = new Node(cDualVars, eDualVars);
 	tempNode->setModel(model);
 	tempNode->setVHash(vHash);
 	tempNode->setCHash(cHash);
@@ -89,7 +91,7 @@ int Solver::solve()
 	//Build Explicit DWM model
 	buildDWM();
 
-	Node *rootNode = new Node();
+	Node *rootNode = new Node(cDualVars,eDualVars);
 	rootNode->setModel(model);
 	rootNode->setVHash(vHash);
 	rootNode->setCHash(cHash);
@@ -111,6 +113,9 @@ void Solver::buildInitialModel()
 	Job *job;
 	Equipment *e;
 	int tInit, tEnd;
+	int cont;
+	int contVars = 0;
+	int contCons = 0;
 
 	cout << "*******************" << endl;
 	cout << "Creating ovf model." << endl;
@@ -121,6 +126,7 @@ void Solver::buildInitialModel()
 	//----------------
 	Variable v, y, x, w;
 
+	cont = 0;
 	cout << "Creating y vars." << endl;
 	//yVars
 	for(int j=1; j < data->numJobs; j++){ //job 0 does not have an Y var
@@ -136,10 +142,15 @@ void Solver::buildInitialModel()
 
 			vHash[y] = true;
 			model->addVar(0.0,1.0,0.0,GRB_INTEGER,y.toString());
+			cont++;
 		}
 	}
+	cout << "Total y Vars created: " << cont << endl;
+	contVars += cont;
 
 	//xVars and wVars
+	int contw = 0;
+	cont = 0;
 	cout << "Creating x and w vars." << endl;
 	queue<Vertex*> myQueue;
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
@@ -189,6 +200,7 @@ void Solver::buildInitialModel()
 						if(vHash.find(x) == vHash.end()){
 							vHash[x] = true;
 							model->addVar(0.0,1.0,transitionTime,GRB_INTEGER, x.toString());
+							cont++;
 						}					
 					}else{
 						w.reset();
@@ -200,6 +212,7 @@ void Solver::buildInitialModel()
 						if(vHash.find(w) == vHash.end()){
 							vHash[w] = true;
 							model->addVar(0.0,1.0,0.0,GRB_INTEGER,w.toString());
+							contw++;
 						}
 					}
 					myQueue.push(d);
@@ -209,7 +222,12 @@ void Solver::buildInitialModel()
 		visited.clear();
 	}
 	
+	contVars += cont + contw;
+
 	model->update();
+	cout << "Total x Vars created: " << cont << endl;
+	cout << "Total w Vars created: " << contw << endl;
+	cout << "Total Variables: " << contVars << endl;
 	//----------------------
 
 	//----------------------
@@ -218,6 +236,7 @@ void Solver::buildInitialModel()
 	GRBVar var1, var2;
 	Constraint c1, c2;
 
+	cont = 0;
 	cout << "Creating cover constraints." << endl;
 	//Cover Constraints
 	for(int j=1; j < data->numJobs; j++){
@@ -241,10 +260,14 @@ void Solver::buildInitialModel()
 			}
 			cHash[c1] = true;
 			model->addConstr(expr == 1, c1.toString());
+			cont ++;
 		}
 	}
+	contCons += cont;
+	cout << "Total cover constraints created: " << cont << endl;
 
 	cout << "Creating synchronization constraints." << endl;
+	cont = 0;
 	//Synchronization Constraints
 	for(int j=1; j < data->numJobs; j++){
 		job = data->jobs[j];
@@ -291,11 +314,15 @@ void Solver::buildInitialModel()
 
 					cHash[c1] = true;
 					model->addConstr(expr == 0, c1.toString());
+					cont ++;
 				}
 			}
 		}
 	}
+	contCons += cont;
+	cout << "Total synchronization constraints created: " << cont << endl;
 
+	cont = 0;
 	cout << "Creating flow init constraints." << endl;
 	//Fow Init constraints
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
@@ -325,8 +352,12 @@ void Solver::buildInitialModel()
 
 		cHash[c1] = true;
 		model->addConstr(expr == e->getNumMachines(), c1.toString());
+		cont ++;
 	}
-	
+	contCons += cont;
+	cout << "Total flow init constraints created: " << cont << endl;
+
+	cont = 0;
 	cout << "Creating flow constraints." << endl;
 	vector<Vertex*>::iterator it, eit;
 	//Create Flow constraints
@@ -423,10 +454,15 @@ void Solver::buildInitialModel()
 
 					cHash[c1] = true;
 					model->addConstr(expr == 0, c1.toString());
+					cont ++; 
 				}
 			}
 		}
 	}
+	contCons += cont;
+	cout << "Total flow constraints created: " << cont << endl;
+	cout << "Total constraints in OVF: " << contCons << endl;
+
 	model->update();
 	//----------------------
 	
@@ -435,6 +471,10 @@ void Solver::buildInitialModel()
 
 void Solver::buildDWM()
 {		
+	int cont;
+	int contVars = 0;
+	int contCons = 0;
+
 	GRBVar var1, var2;
 	GRBConstr cons;
 
@@ -469,7 +509,7 @@ void Solver::buildDWM()
 		}
 	}
 
-	
+	cont = 0;
 	cout << "Creating b auxilaty variables." << endl;
 	//Create bAux vars
 	for(int i=0; i< data->numJobs; i++){
@@ -495,12 +535,16 @@ void Solver::buildDWM()
 					if(vHash.find(b) == vHash.end()){
 						vHash[b] = true;
 						model->addVar(0.0,1.0,bigM,GRB_CONTINUOUS,b.toString());
+						cont ++;
 					}
 				}
 			}
 		}
 	}
+	contVars += cont;
+	cout << "Total b aux variables created: " << cout << endl;
 	
+	cont = 0;
 	cout << "Creating f auxiliary variables." << endl;
 	//fAuxVar
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
@@ -512,7 +556,11 @@ void Solver::buildDWM()
 
 		vHash[f] = true;
 		model->addVar(0.0,e->getNumMachines(),bigM,GRB_CONTINUOUS, f.toString());
+		cont ++;
 	}
+	contVars += cont;
+	cout << "Total f aux variables created: " << cont << endl;
+	cout << "Total auxiliary variables created in dwm: " << contVars << endl;
 
 	model->update();
 	//----------------------
@@ -540,6 +588,7 @@ void Solver::buildDWM()
 	//----------------------
 	//CREATE CONSTRAINTS
 	//----------------------
+	cont = 0;
 	cout << "Creating route number constraints." << endl;
 	//Cardinality constraints
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
@@ -550,6 +599,7 @@ void Solver::buildDWM()
 		c.reset();
 		c.setType(C_CARD);
 		c.setEquipmentType(eqType);
+		c.setId(cont);
 
 		f.reset();
 		f.setType(V_FAUX);
@@ -560,9 +610,14 @@ void Solver::buildDWM()
 			expr += var1;
 			cHash[c] = true;
 			model->addConstr(expr == e->getNumMachines(), c.toString());
+			cont++;
 		}
 	}
+	cDualVars = cont;
+	contCons += cont;
+	cout << "Convex constraints created: " << cont << endl;
 	
+	cont = 0;
 	cout << "Creating explicit master constraints." << endl;
 	//Explicit master constraints
 	for(int i=0; i < data->numJobs; i++){
@@ -578,6 +633,7 @@ void Solver::buildDWM()
 					c.setEndJob(j);
 					c.setTime(t);
 					c.setEquipmentType(eqType);
+					c.setId(cont);
 
 					v.reset();
 					v.setType(V_X);
@@ -600,12 +656,17 @@ void Solver::buildDWM()
 						expr -= var2;
 						cHash[c] = true;
 						model->addConstr(expr == 0, c.toString());
+						cont ++;
 					}
 
 				}
 			}
 		}
 	}
+	eDualVars = cont;
+	contCons += cont;
+	cout << "Total explicit master constraints: " << cont << endl;
+	cout << "Total constraints specific to the DWM: " << cont << endl;
 
 	model->update();
 	//----------------------
@@ -648,11 +709,11 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 			fixatedVars = 0;
 			double Zlp = node->getZLP();
 			lagrangeanBound = ZInc - Zlp;
-			minRouteCost = 0.0;
 
 			//Generate routes for each equipment type
 			for(int eqType = 0; eqType < data->numEquipments; eqType++){
-				Equipment *e = data->equipments[eqType];				
+				Equipment *e = data->equipments[eqType];					
+				minRouteCost = 0.0;
 				
 				spSolver->solve(node, eqType, 10);
 				if(spSolver->isInfeasible()){
@@ -666,15 +727,25 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				minRouteCost = spSolver->routes[0]->getCost();
 				generatedRoutes.insert(generatedRoutes.end(),spSolver->routes.begin(),spSolver->routes.end());
 				lagrangeanBound -= (e->getNumMachines() * minRouteCost);
-			}	
+			}
 
 			//If no routes where generated, the current lp solution is optimal
 			if(generatedRoutes.size() == 0){
-				end = true;
+				if(parameters->useDualStabilization()){
+					if(node->getMaxPiDifference() <= parameters->getEpsilon()){
+						end = true;
+					}else{
+						cout << "No route found. Updating Pi" << endl;
+						node->updatePi();
+						continue;
+					}
+				}else{
+					end = true;
+				}
 			}else{
 				//fix variables by reduced cost.
 				if(iteration % 10 == 0){
-					fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
+					//fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
 					totalFixatedVars += fixatedVars;
 				}
 
@@ -707,6 +778,7 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				cout << output.str() << endl;
 			}
 		}else{ //INFEASIBLE
+			node->getModel()->write("modelo_inf.lp");
 			cout << "Infeasible" << endl;
 			return GRB_INFEASIBLE;
 		}

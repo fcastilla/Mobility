@@ -51,6 +51,8 @@ private:
 
 	//Global 
 	double ZInc;
+	int eDualVars;
+	int cDualVars;
 
 	//Statistics
 	int routeCounter;

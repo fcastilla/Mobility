@@ -31,6 +31,7 @@ void Constraint::reset()
 	eJob = -1;
 	time = -1;
 	eqType = -1;
+	id = -1;
 }
 
 Constraint& Constraint::operator= (const Constraint& cons)
@@ -40,6 +41,7 @@ Constraint& Constraint::operator= (const Constraint& cons)
 	this->eJob = cons.getEndJob();
 	this->time = cons.getTime();
 	this->eqType = cons.getEquipmentType();
+	this->id = cons.getId();
 
 	return *this;
 }

@@ -9,17 +9,24 @@
 #include <algorithm>
 #include <vector>
 
-Node::Node() : Zlp(1e13), nodeId(-1), routeCount(0)
+Node::Node(int c, int e) : Zlp(1e13), nodeId(-1), routeCount(0)
 {
 	parameters = GlobalParameters::getInstance();
 	solution = nullptr;
+	cDual = c;
+	eDual = e;
+	initializePi();
 }
 
-Node::Node(const Node &other) : vHash(other.vHash), cHash(other.cHash), Zlp(1e13), nodeId(-1), solStatus(GRB_LOADED), routeCount(0)
+Node::Node(const Node &other) : vHash(other.vHash), cHash(other.cHash), Zlp(1e13), 
+	nodeId(-1), solStatus(GRB_LOADED), routeCount(0)
 {
 	model = new GRBModel(*other.model);
 	parameters = GlobalParameters::getInstance();
 	solution = nullptr;
+	cDual = other.cDual;
+	eDual = other.eDual;
+	initializePi();
 }
 
 Node::~Node()
@@ -40,7 +47,73 @@ int Node::solve()
 
 	Zlp = model->get(GRB_DoubleAttr_ObjVal);
 	updateVariables(solStatus);
+	if(parameters->useDualStabilization()){
+		getCurrentPi();
+		calculateAlphaPi();
+	}
 	return solStatus;
+}
+
+void Node::initializePi()
+{
+	alpha = 0.05;
+
+	alphaPi_c = valarray<double>(cDual);
+	feasiblePi_c = valarray<double>(cDual);
+	currentPi_c = valarray<double>(eDual);
+
+	alphaPi_e = valarray<double>(eDual);
+	currentPi_e = valarray<double>(eDual);
+	feasiblePi_e = valarray<double>(eDual);
+}
+
+void Node::getCurrentPi()
+{
+	double pi;
+
+	GRBConstr myConstr;
+
+	Constraint c;
+	ConstraintHash::iterator cit = cHash.begin();
+
+	while(cit != cHash.end()){
+		c = cit->first;
+		if(c.getType() == C_CARD){
+			myConstr = model->getConstrByName(c.toString());			
+			pi = myConstr.get(GRB_DoubleAttr_Pi); 
+			currentPi_c[c.getId()] = pi;
+		}else if(c.getType() == C_EXPLICIT){			
+			myConstr = model->getConstrByName(c.toString());			
+			pi = myConstr.get(GRB_DoubleAttr_Pi); 
+			currentPi_e[c.getId()] = pi;
+		}
+		cit++;
+	}
+}
+
+void Node::calculateAlphaPi()
+{
+	double alphaComp = 1 - alpha;
+
+	alphaPi_c = (alphaComp * feasiblePi_c) + (alpha * currentPi_c);
+	alphaPi_e = (alphaComp * feasiblePi_e) + (alpha * currentPi_e);
+}
+
+void Node::updatePi()
+{
+	feasiblePi_c = alphaPi_c;
+	feasiblePi_e = alphaPi_e;
+}
+
+double Node::getMaxPiDifference()
+{
+	double maxDiff;
+	valarray<double> diff1 = abs(feasiblePi_e - currentPi_e);
+	valarray<double> diff2 = abs(feasiblePi_c - currentPi_c);
+
+	maxDiff = max(diff1.max(),diff2.max());
+
+	return maxDiff;
 }
 
 void Node::updateVariables(int status)
@@ -280,33 +353,6 @@ double Node::getVarLB(Variable v)
 	return -1;
 }
 
-double Node::getArcReducedCost(Variable v)
-{
-	VariableHash::iterator vit = vHash.find(v);
-	if(vit != vHash.end()){ //Variable exist in current model
-		GRBVar myVar = model->getVarByName(v.toString());
-		double ub = myVar.get(GRB_DoubleAttr_UB);
-		if(ub == 0){ //se a variavel esta fixada a 0
-			return 1e13;
-		}
-	}	
-	
-	Constraint c;
-	c.setType(C_EXPLICIT);
-	c.setStartJob(v.getStartJob());
-	c.setEndJob(v.getEndJob());
-	c.setTime(v.getTime());
-	c.setEquipmentType(v.getEquipmentType());
-	
-	ConstraintHash::iterator cit = cHash.find(c);
-	if(cit != cHash.end()){ //constraint exist
-		GRBConstr myConstr = model->getConstrByName(c.toString());
-		return myConstr.get(GRB_DoubleAttr_Pi); //return shadow price
-	}
-
-	return 1e13;
-}
-
 double Node::getArcReducedCost(int sJob, int dJob, int time, int eqType)
 {
 	Constraint c;
@@ -317,9 +363,13 @@ double Node::getArcReducedCost(int sJob, int dJob, int time, int eqType)
 	c.setEquipmentType(eqType);
 	
 	ConstraintHash::iterator cit = cHash.find(c);
-	if(cit != cHash.end()){ //constraint exist
-		GRBConstr myConstr = model->getConstrByName(c.toString());
-		return myConstr.get(GRB_DoubleAttr_Pi); //return shadow price
+	if(cit != cHash.end()){ 
+		if(parameters->useDualStabilization()){
+			return alphaPi_e[cit->first.getId()];
+		}else{
+			GRBConstr myConstr = model->getConstrByName(c.toString());
+			return myConstr.get(GRB_DoubleAttr_Pi);
+		}
 	}
 
 	return 1e13;
@@ -333,8 +383,12 @@ double Node::getRouteUseReducedCost(int eqType)
 
 	ConstraintHash::iterator cit = cHash.find(c);
 	if(cit != cHash.end()){
-		GRBConstr myConstr = model->getConstrByName(c.toString());
-		return myConstr.get(GRB_DoubleAttr_Pi); //return shadow price
+		if(parameters->useDualStabilization()){
+			return alphaPi_e[cit->first.getId()];
+		}else{
+			GRBConstr myConstr = model->getConstrByName(c.toString());
+			return myConstr.get(GRB_DoubleAttr_Pi);
+		}
 	}
 
 	return 1e13;
@@ -344,19 +398,11 @@ double Node::verifyRouteCost(Route *r)
 {
 	double cost = 0;
 
-	Variable v;
 	Edge *e;
 	vector<Edge*>::iterator eit = r->edges.begin();
 	while(eit != r->edges.end()){
 		e = (*eit);
-		v.reset();
-		v.setType(V_X);
-		v.setStartJob(e->getStartJob());
-		v.setEndJob(e->getEndJob());
-		v.setTime(e->getTime());
-		v.setEquipmentTipe(r->getEquipmentType());
-
-		cost += getArcReducedCost(v);
+		cost += getArcReducedCost(e->getStartJob(),e->getEndJob(),e->getTime(),r->getEquipmentType());
 
 		eit++;
 	}
