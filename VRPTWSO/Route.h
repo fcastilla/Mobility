@@ -20,8 +20,16 @@ using namespace std;
 class Route
 {
 public:
-	Route(){}
-	Route(int e) : eqType(e){}
+	Route(Route *r){
+		routeNumber = r->getRouteNumber();
+		eqType = r->getEquipmentType();
+		cost = r->getCost();
+		reducedCost = r->getReducedCost();
+		solVal = r->getSolVal();
+		edges = r->edges;
+	}
+	Route() : routeNumber(-1), eqType(-1), cost(0), reducedCost(0), solVal(0) { edges = vector<Edge*>(); }
+	Route(int e) : routeNumber(-1), eqType(e), cost(0), reducedCost(0), solVal(0){ edges = vector<Edge*>(); }
 
 	~Route(){
 		vector<Edge*>::iterator it = edges.begin();
@@ -36,12 +44,14 @@ public:
 	int getRouteNumber() const{ return routeNumber; }
 	int getEquipmentType() const{ return eqType; }
 	double getCost() const{ return cost; }
+	double getReducedCost() const { return reducedCost; }
 	double getSolVal() const{ return solVal; }
 
 	//SET METHODS
 	void setEquipmentType(int e){ eqType = e; }
 	void setRouteNumber(int num){ routeNumber = num; }
 	void setCost(double c){ cost = c; }
+	void setReducedCost(double c){ reducedCost = c; }
 	void setSolVal(double val){ solVal = val; }
 
 	//OPERATORS
@@ -56,18 +66,28 @@ public:
 
 		return false;
 	}
-
+	
 	//OTHER
+	bool findArc(int j, int i, int t){
+		Edge *myEdge;
+		vector<Edge*>::reverse_iterator it = edges.rbegin();
+		for(; it != edges.rend(); it++){
+			myEdge = (*it);	
+			if(myEdge->getStartJob() == j && myEdge->getEndJob() == i && myEdge->getTime() == t)
+				return true;
+		}
+		return false;
+	}
+
 	string toString(){ 
 		stringstream s;
-		s << "Route:" << setw(8) << routeNumber << " | RCost:" << setw(8) << cost << " | EqType:" << eqType << " = ";
+		s << "Route:" << setw(8) << routeNumber << " | RCost:" << setw(8) << reducedCost << " | EqType:" << eqType << " = ";
 		Edge *myEdge;
 		vector<Edge*>::reverse_iterator it = edges.rbegin();
 		for(; it != edges.rend(); it++){
 			myEdge = (*it);			
-			s << "(" << myEdge->getStartJob() << "," << myEdge->getTime() << ")->";
+			s << "(" << myEdge->getStartJob() << "," << myEdge->getEndJob() << "," << myEdge->getTime() << ")->";
 		}
-		s << "(" << myEdge->getEndJob() << ")";
 		return s.str();
 	}
 
@@ -76,4 +96,5 @@ private:
 	int routeNumber;
 	int eqType;
 	double cost;
+	double reducedCost;
 };

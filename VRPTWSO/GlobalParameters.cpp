@@ -7,7 +7,7 @@ GlobalParameters::GlobalParameters()
 {
 	bigM = 10000;
 	epsilon = 1e-5;
-	maxRoutesPerIteration = 5;
+	maxRoutesPerIteration = 1;
 	dualStabilization = false;
 }
 

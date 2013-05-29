@@ -3,6 +3,7 @@
 #include "gurobi_c++.h"
 #include <map>
 #include <hash_map>
+#include <cmath>
 #include "Route.h"
 
 #ifdef DEBUG
@@ -48,9 +49,10 @@ public:
 	int getArrivalTime() const { return arrivalTime; }
 	int getEquipmentType() const { return eqType; }
 	int getRouteNumber() const { return routeNumber; }
+	Route *getRoute() const { return route; }
 	
 	int getRank() const { return *rank; }
-	double getFractionality() const { return *fractionality; }
+	double getFractionality() const { return fabs(*value - 0.5); }
 	double getScore() const { return *score; }
 	double getReducedCost() const { return *rc; }
 
@@ -64,7 +66,7 @@ public:
 	void setArrivalTime(int t){ arrivalTime = t; }
 	void setEquipmentTipe(int e){ eqType = e; }
 	void setRouteNumber(int num){ routeNumber = num; }
-
+	void setRoute(Route *r){ route = r; }
 	void increaseRank() const{ *rank += 1; }
 	void setFractionality(double f) const { *fractionality = f; }
 	void setScore(double s) const { *score = s; }
@@ -89,6 +91,7 @@ private:
 	int arrivalTime;
 	int eqType;
 	int routeNumber;
+	Route *route;
 	int *rank;
 	double *fractionality;
 	double *score;

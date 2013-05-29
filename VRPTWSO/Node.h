@@ -44,8 +44,9 @@ public:
 	double getZLP(){ return Zlp; }
 	double getVarLB(Variable v);
 	int getRouteCount(){ return routeCount; }
+	double getDualVal(int j, int t, int e);
 
-	double getArcReducedCost(int sJob, int dJob, int time, int eqType);
+	double getArcReducedCost(int j, int t, int e, double cost);
 	double getRouteUseReducedCost(int eqType);
 
 

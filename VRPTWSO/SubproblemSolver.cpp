@@ -155,9 +155,6 @@ void SubproblemSolver::solve(Node *node, int eqType, int maxRoutes)
 	//If there are conflicts there is no solution.
  	if(infeasible)
 		return;
-
-	//Update reduced costs matrix
-	double routeUseCost = node->getRouteUseReducedCost(eqType);
 	
 	//Dynamic Programming
 	Vertex *p, *next;
@@ -171,6 +168,7 @@ void SubproblemSolver::solve(Node *node, int eqType, int maxRoutes)
 	fMatrix[0][0]->addLabel(new Label(0,0,0));
 
 	//Reaching algorithm
+	Equipment *e = data->equipments[eqType];
 	Vertex *currentVertex, *nextVertex;
 	set<Vertex*,VertexComparator>::iterator vit = data->vertexSet.begin();
 	set<Vertex*,VertexComparator>::iterator veit = data->vertexSet.end();
@@ -188,7 +186,10 @@ void SubproblemSolver::solve(Node *node, int eqType, int maxRoutes)
 			nJob = nextVertex->getJob();
 			nTime = nextVertex->getTime();
 
-			rc = (cJob == nJob)? 0 : node->getArcReducedCost(cJob,nJob,cTime,eqType);
+			//Get objective function value for arc Xjite (distance)
+			double dist = e->getNotRoundedTransitionTime(cJob,nJob);
+
+			rc = (cJob == nJob)? 0 : node->getArcReducedCost(cJob,cTime,eqType,dist);
 
 			fMatrix[nJob][nTime]->evaluate(fMatrix[cJob][cTime]->getLabels(), rc, false);
 		}
@@ -207,18 +208,32 @@ void SubproblemSolver::solve(Node *node, int eqType, int maxRoutes)
 		}
 
 		myRoute = new Route(eqType);
-		myRoute->setCost(currentLabel->getCost() - routeUseCost);
+		myRoute->setReducedCost(currentLabel->getCost());
 
-		if(myRoute->getCost() >= -parameters->getEpsilon()) break; //labels are ordered by reduced cost.
+		if(myRoute->getReducedCost() >= -parameters->getEpsilon()) break; //labels are ordered by reduced cost.
 
+		double cost = 0.0;
 		Label *previousLabel = currentLabel->getPredecessor();
-		while(previousLabel != nullptr){
-			if(currentLabel->getJob() != previousLabel->getJob()){ //not waiting
-				myRoute->edges.push_back(new Edge(previousLabel->getJob(),currentLabel->getJob(), previousLabel->getTime()));
+		while(currentLabel != nullptr){
+			if(currentLabel->getJob() == 0 || currentLabel->getJob() != previousLabel->getJob()){ //not waiting
+				/*cout << endl <<  "(" << currentLabel->getJob() << "," << currentLabel->getTime() << ")";
+				cout << " Valor do Label: " << setw(8) << currentLabel->getCost(); 
+				if(currentLabel->getTime() != 230){
+					cout << " Valor Dual_" << currentLabel->getJob() 
+						<< "," << currentLabel->getTime() << "," << eqType << ": " 
+						<< node->getDualVal(currentLabel->getJob(),currentLabel->getTime(),eqType) << endl;
+				}*/
+
+				if(previousLabel != nullptr){
+					cost += e->getNotRoundedTransitionTime(previousLabel->getJob(),currentLabel->getJob());
+					myRoute->edges.push_back(new Edge(previousLabel->getJob(),currentLabel->getJob(), previousLabel->getTime()));
+				}
 			}
 			currentLabel = previousLabel;
-			previousLabel = currentLabel->getPredecessor();		
+			if(previousLabel != nullptr)
+				previousLabel = currentLabel->getPredecessor();		
 		}
+		myRoute->setCost(cost);
 
 		routes.push_back(myRoute);
 		contRoutes++;

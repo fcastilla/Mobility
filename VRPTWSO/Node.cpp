@@ -78,7 +78,7 @@ void Node::getCurrentPi()
 
 	while(cit != cHash.end()){
 		c = cit->first;
-		if(c.getType() == C_CARD){
+		if(c.getType() == C_CONV){
 			myConstr = model->getConstrByName(c.toString());			
 			pi = myConstr.get(GRB_DoubleAttr_Pi); 
 			currentPi_c[c.getId()] = pi;
@@ -140,7 +140,7 @@ void Node::updateVariables(int status)
 
 		val = var.get(GRB_DoubleAttr_X);
 		vit->first.setValue(val);
-		vit->first.setFractionality(fabs(val - 0.5));
+		//vit->first.setFractionality(fabs(val - 0.5));
 
 		if(val - floor(val) > parameters->getEpsilon()){
 			isInteger = false;
@@ -152,52 +152,114 @@ void Node::updateVariables(int status)
 
 const Variable Node::getMostFractional()
 {	
+	VariableFractionalityComparator comp;
+
 	vector<Variable> yFractionalVars = vector<Variable>();
 	vector<Variable> xFractionalVars = vector<Variable>();
 	
-	Variable v;
-	VariableHash::iterator vit;
+	Variable v, x, mostFractional;
+	VariableHash::iterator vit, vit2;
 
-	//Try to get any fractional variables
+	//Get y fractional variables
 	for(vit = vHash.begin(); vit != vHash.end(); vit++){
 		v = vit->first;
 		if(v.getType() == V_Y){
 			//Verify has a fractional value
 			if(v.getFractionality() != 0.5)
 				yFractionalVars.push_back(v);
-		}else if(v.getType() == V_X){
-			if(v.getFractionality() != 0.5)
-				xFractionalVars.push_back(v);
 		}
 	}
-
-	VariableFractionalityComparator comp;
-
+		
 	//See if there are any fractional Y vars
 	if(yFractionalVars.size() > 0){
 		std::sort(yFractionalVars.begin(),yFractionalVars.end(),comp);
 		return yFractionalVars[0];
-	}else if(xFractionalVars.size() > 0){
+	}
+
+	//IF THERE ARE NO Y FRACTIONAL VARIABLES, BRANCH ON ORIGINAL X VARS
+
+	//Set the arc values, based on the lambdas variables
+	Edge *e;
+	VariableHash xHash;
+	for(vit = vHash.begin(); vit != vHash.end(); vit++){
+		v = vit->first;
+		if(v.getType() == V_LAMBDA){
+			//Iterate through lambda route edges
+			vector<Edge*>::iterator itEdge = v.getRoute()->edges.begin();
+			while(itEdge != v.getRoute()->edges.end()){
+				e = (*itEdge);
+				x.reset();
+				x.setType(V_X);
+				x.setStartJob(e->getStartJob());
+				x.setEndJob(e->getEndJob());
+				x.setTime(e->getTime());
+				x.setEquipmentTipe(v.getEquipmentType());
+
+				vit2 = xHash.find(x);
+				if(vit2 != xHash.end()){
+					vit2->first.setValue(vit2->first.getValue() + v.getValue());
+				}else{
+					x.setValue(v.getValue());
+					xHash[x] = true;
+				}
+				itEdge++;
+			}
+		}
+	}
+
+	//Get most fractional arc
+	for(vit = xHash.begin(); vit != xHash.end(); vit++){
+		x = vit->first;
+		//Verify x has a fractional value
+		if(x.getFractionality() != 0.5)
+			xFractionalVars.push_back(x);
+	}
+
+	//See if there are any fractional x vars
+	if(xFractionalVars.size() > 0){
 		std::sort(xFractionalVars.begin(),xFractionalVars.end(),comp);
 		return xFractionalVars[0];
 	}
 
 	cout << "ATENTION: No fractional variable found!!! Still not integer solution????" << endl;
-	return v;
+	return mostFractional;
 }
 
 bool Node::addBranchConstraint(Variable v, double rhs)
 {
-	if(vHash.find(v) != vHash.end()){
-		GRBVar var = model->getVarByName(v.toString());
-		GRBLinExpr expr = 0;
-		expr += var;
+	if(v.getType() == V_Y){
+		if(vHash.find(v) != vHash.end()){
+			GRBVar var = model->getVarByName(v.toString());
+			GRBLinExpr expr = 0;
+			expr += var;
 
+			model->addConstr(expr == rhs, "Branch_" + v.toString());
+			model->update();
+			return true;
+		}
+	}else if(v.getType() == V_X){
+		GRBVar var;
+		GRBLinExpr expr = 0;
+		//Iterate through lambdas and pick the ones which route pass through x
+		Variable lambda;
+		VariableHash::iterator vit = vHash.begin();
+		for(; vit != vHash.end(); vit++){
+			if(vit->first.getType() == V_LAMBDA){
+				lambda = vit->first;
+				if(lambda.getEquipmentType() != v.getEquipmentType()) continue; //both vars must be of the same equipment type.
+				if(lambda.getRoute()->findArc(v.getStartJob(),v.getEndJob(),v.getTime())){
+					var = model->getVarByName(lambda.toString());
+					expr += var;
+				}					
+			}
+		}
 		model->addConstr(expr == rhs, "Branch_" + v.toString());
 		model->update();
 		return true;
+	}else if(v.getType() == V_ERROR){
+		return false;
 	}
-
+	
 	return false;
 }
 
@@ -208,6 +270,9 @@ bool Node::addColumn(Route *route)
 	Constraint c1, c2;
 	ConstraintHash::iterator cit1, cit2;
 
+	//Verify
+	verifyRouteCost(route);
+
 	int routeNumber = route->getRouteNumber();
 	int eqType = route->getEquipmentType();
 
@@ -216,6 +281,7 @@ bool Node::addColumn(Route *route)
 	v.setType(V_LAMBDA);
 	v.setRouteNumber(routeNumber);
 	v.setEquipmentTipe(eqType);
+	v.setRoute(route);
 
 	if(vHash.find(v) != vHash.end()){
 		std::cout << "Adding Column " << v.toString() << ": Lambda variable already existed! " << std::endl;
@@ -223,12 +289,14 @@ bool Node::addColumn(Route *route)
 	}
 
 	vHash[v] = true;
-	GRBVar lambda = model->addVar(0.0,GRB_INFINITY,0.0,GRB_CONTINUOUS,v.toString());
+	GRBVar lambda = model->addVar(0.0,1.0,route->getCost(),GRB_CONTINUOUS,v.toString()); //adds to the objective function
 	model->update(); 
 
-	//Add column (Card constraints)
+	double routeRC = route->getCost();
+
+	//Add column (Conv constraints)
 	c1.reset();
-	c1.setType(C_CARD);
+	c1.setType(C_CONV);
 	c1.setEquipmentType(eqType);
 
 	if(cHash.find(c1) == cHash.end()){
@@ -238,28 +306,30 @@ bool Node::addColumn(Route *route)
 	GRBConstr cardConstr = model->getConstrByName(c1.toString());
 	model->chgCoeff(cardConstr,lambda,1.0);
 
-	//Add column (Explicit Master constraints)
+	//Add column (Synch constraints)
 	Edge *myEdge;
 	GRBConstr explicitConstr;
 	vector<Edge*>::iterator eit = route->edges.begin();
 	while(eit != route->edges.end()){
 		myEdge = (*eit);
 
-		//Explicit constraints
-		c2.reset();
-		c2.setType(C_EXPLICIT);
-		c2.setStartJob(myEdge->getStartJob());
-		c2.setEndJob(myEdge->getEndJob());
-		c2.setTime(myEdge->getTime());
-		c2.setEquipmentType(eqType);
+		if(myEdge->getStartJob() != 0){;
 
-		if(cHash.find(c2) == cHash.end()){
-			std::cout << "Adding Column " << v.toString() << ": Explicit master constraint didn't exist." << std::endl;
-			return false;
+			//synchronization constraints
+			c2.reset();
+			c2.setType(C_SYNCH);
+			c2.setStartJob(myEdge->getStartJob());
+			c2.setTime(myEdge->getTime());
+			c2.setEquipmentType(eqType);
+
+			if(cHash.find(c2) == cHash.end()){
+				std::cout << "Adding Column " << v.toString() << ": synch constraint didn't exist." << std::endl;
+				return false;
+			}
+
+			explicitConstr = model->getConstrByName(c2.toString());
+			model->chgCoeff(explicitConstr, lambda, 1.0);
 		}
-
-		explicitConstr = model->getConstrByName(c2.toString());
-		model->chgCoeff(explicitConstr, lambda, -1.0);
 
 		eit++;
 	}
@@ -281,7 +351,7 @@ int Node::fixVarsByReducedCost(double maxRC)
 	VariableHash::iterator vit = vHash.begin();
 
 	while(vit != vHash.end()){
-		if(vit->first.getType() == V_X || vit->first.getType() == V_Y){
+		if(vit->first.getType() == V_Y){
 			if(vit->first.getReducedCost() > maxRC){
 				var = model->getVarByName(vit->first.toString());
 				model->remove(var);
@@ -327,6 +397,7 @@ int Node::cleanNode(int maxRoutes)
 		if(cont < maxRoutes){
 			cont++;
 		}else{
+			delete (*it).getRoute();
 			vit = vHash.find(*it);
 			vHash.erase(vit);			
 			lambda = model->getVarByName((*it).toString());
@@ -353,32 +424,59 @@ double Node::getVarLB(Variable v)
 	return -1;
 }
 
-double Node::getArcReducedCost(int sJob, int dJob, int time, int eqType)
+double Node::getArcReducedCost(int j, int t, int e, double cost)
 {
 	Constraint c;
-	c.setType(C_EXPLICIT);
-	c.setStartJob(sJob);
-	c.setEndJob(dJob);
-	c.setTime(time);
-	c.setEquipmentType(eqType);
+	c.setType(C_SYNCH);
+	c.setStartJob(j);
+	c.setTime(t);
+	c.setEquipmentType(e);	
 	
-	ConstraintHash::iterator cit = cHash.find(c);
-	if(cit != cHash.end()){ 
-		if(parameters->useDualStabilization()){
-			return alphaPi_e[cit->first.getId()];
-		}else{
-			GRBConstr myConstr = model->getConstrByName(c.toString());
-			return myConstr.get(GRB_DoubleAttr_Pi);
+	double dualVal = 0.0;
+	if(j != 0){
+		ConstraintHash::iterator cit = cHash.find(c);
+		if(cit != cHash.end()){ 
+			if(parameters->useDualStabilization()){
+				dualVal = alphaPi_e[cit->first.getId()];
+			}else{
+				GRBConstr myConstr = model->getConstrByName(c.toString());
+				dualVal = myConstr.get(GRB_DoubleAttr_Pi);
+			}
 		}
+	}else{
+		dualVal = getRouteUseReducedCost(e);
 	}
 
-	return 1e13;
+	return cost - dualVal;
+}
+
+double Node::getDualVal(int j, int t, int e)
+{
+	double val = 0.0;
+
+	Constraint c;
+	c.setType(C_SYNCH);
+	c.setStartJob(j);
+	c.setTime(t);
+	c.setEquipmentType(e);
+
+	if(j != 0){
+		ConstraintHash::iterator cit = cHash.find(c);
+		if(cit != cHash.end()){ 
+			GRBConstr myConstr = model->getConstrByName(c.toString());
+			val = myConstr.get(GRB_DoubleAttr_Pi);
+		}
+	}else{
+		val = getRouteUseReducedCost(e);
+	}
+
+	return val;
 }
 
 double Node::getRouteUseReducedCost(int eqType)
 {
 	Constraint c;
-	c.setType(C_CARD);
+	c.setType(C_CONV);
 	c.setEquipmentType(eqType);
 
 	ConstraintHash::iterator cit = cHash.find(c);
@@ -394,20 +492,66 @@ double Node::getRouteUseReducedCost(int eqType)
 	return 1e13;
 }
 
-double Node::verifyRouteCost(Route *r)
+double Node::verifyRouteCost(Route *route)
 {
-	double cost = 0;
+	Variable v;
 
-	Edge *e;
-	vector<Edge*>::iterator eit = r->edges.begin();
-	while(eit != r->edges.end()){
-		e = (*eit);
-		cost += getArcReducedCost(e->getStartJob(),e->getEndJob(),e->getTime(),r->getEquipmentType());
+	Constraint c1, c2;
+	ConstraintHash::iterator cit1, cit2;
+
+	int routeNumber = route->getRouteNumber();
+	int eqType = route->getEquipmentType();
+
+	//Create lambda variable
+	double routeRC = route->getCost();
+
+	//Add column (Conv constraints)
+	c1.reset();
+	c1.setType(C_CONV);
+	c1.setEquipmentType(eqType);
+
+	if(cHash.find(c1) == cHash.end()){
+		std::cout << "Adding Column " << v.toString() << ": Cardinality constraint didn't exist." << std::endl;
+		return false;
+	}
+	GRBConstr cardConstr = model->getConstrByName(c1.toString());
+	routeRC -= cardConstr.get(GRB_DoubleAttr_Pi);
+
+	//Add column (Synch constraints)
+	Edge *myEdge;
+	GRBConstr explicitConstr;
+	vector<Edge*>::iterator eit = route->edges.begin();
+	while(eit != route->edges.end()){
+		myEdge = (*eit);
+
+		if(myEdge->getStartJob() != 0){;
+
+			//synchronization constraints
+			c2.reset();
+			c2.setType(C_SYNCH);
+			c2.setStartJob(myEdge->getStartJob());
+			c2.setTime(myEdge->getTime());
+			c2.setEquipmentType(eqType);
+
+			if(cHash.find(c2) == cHash.end()){
+				std::cout << "Adding Column " << v.toString() << ": synch constraint didn't exist." << std::endl;
+				return false;
+			}
+
+			explicitConstr = model->getConstrByName(c2.toString());
+			routeRC -= explicitConstr.get(GRB_DoubleAttr_Pi);
+		}
 
 		eit++;
 	}
 
-	return cost;
+	if(route->getReducedCost() - routeRC > parameters->getEpsilon()){
+		cout << "ATENCAO: CUSTOS REDUZIDOS NÃO BATEM" << endl;
+		cout << " Custo reduzido do subproblema: " << route->getReducedCost() << endl;
+		cout << " Custo reduzido verificado da rota: " << routeRC << endl;
+	}
+
+	return true;
 }
 
 Solution* Node::getSolution()
@@ -420,9 +564,9 @@ Solution* Node::getSolution()
 	//Iterate through lambda variables
 	VariableHash::iterator vit = vHash.begin();
 	for(; vit != vHash.end(); vit++){
-		if(vit->first.getType() == V_X){
+		if(vit->first.getType() == V_LAMBDA){
 			if(vit->first.getValue() > parameters->getEpsilon()){ //lambda is in current solution
-				solution->addEdge(vit->first.getStartJob(), vit->first.getEndJob(), vit->first.getTime(), vit->first.getArrivalTime(), vit->first.getEquipmentType());			
+				solution->addRoute(vit->first.getRoute());
 			}
 		}
 	}

@@ -25,9 +25,9 @@ class Edge
 public:
 	Edge(int i, int j, int t) : sJob(i), eJob(j), time(t){ }
 
-	int getStartJob(){ return sJob; }
-	int getEndJob(){ return eJob; }
-	int getTime(){ return time; }
+	int getStartJob() const { return sJob; }
+	int getEndJob() const { return eJob; }
+	int getTime() const { return time; }
 
 private:
 	int sJob;

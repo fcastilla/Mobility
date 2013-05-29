@@ -64,6 +64,7 @@ Variable& Variable::operator=(const Variable& var)
 	this->arrivalTime = var.getArrivalTime();
 	this->eqType = var.getEquipmentType();
 	this->routeNumber = var.getRouteNumber();
+	this->route = var.getRoute();
 
 	return *this;
 }
@@ -135,7 +136,7 @@ string Variable::toString() const
 			str << "FAUX_" << eqType;
 			break;
 		case(V_BAUX):
-			str << "BAUX_" << sJob << "," << eJob << "," << time << "," << eqType;
+			str << "BAUX_" << sJob;
 			break;
 		default:
 			str << "UNDEFINED";

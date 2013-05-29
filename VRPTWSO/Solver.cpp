@@ -88,7 +88,7 @@ int Solver::solve()
 	//Disable gurobi output
 	myEnv.set(GRB_IntParam_OutputFlag,0);
 
-	//Build Explicit DWM model
+	//Build DWM model
 	buildDWM();
 
 	Node *rootNode = new Node(cDualVars,eDualVars);
@@ -482,12 +482,12 @@ void Solver::buildDWM()
 	Variable v, b, f;
 
 	cout << "****************************" << endl;
-	cout << "Creating explicit dwm model." << endl;
+	cout << "Creating dwm model." << endl;
 	cout << "****************************" << endl;
 
 	//Relax integer variables
 	
-	cout << "Deleting w (ovf) variables, relaxing y and x variaveis." << endl;
+	cout << "Deleting w, x (ovf) variables, relaxing y variaveis." << endl;
 	//Delete w variables
 	VariableHash::iterator vit = vHash.begin();
 	while(vit != vHash.end()){
@@ -496,53 +496,33 @@ void Solver::buildDWM()
 
 		if(v.getType() == V_W){ 
 			model->remove(var1);
-			vHash.erase(vit++);
-		}else{
-			if(v.getType() == V_X){
-				//Relax integer x variable
-				var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);				
-			}else if(v.getType() == V_Y){
-				//Relax integer variable
-				var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);
-			}
+			vit = vHash.erase(vit);
+		}else if(v.getType() == V_X){			 
+			model->remove(var1);
+			vit = vHash.erase(vit); 
+		}else if(v.getType() == V_Y){
+			//Relax integer variable
+			var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);
 			vit++;
-		}
+		}		
 	}
 
 	cont = 0;
 	cout << "Creating b auxilaty variables." << endl;
 	//Create bAux vars
-	for(int i=0; i< data->numJobs; i++){
-		for(int j=0; j<data->numJobs; j++){
-			for(int t=0; t < data->horizonLength; t++){
-				for(int eqType = 0; eqType < data->numEquipments; eqType++){
-					v.reset();
-					v.setType(V_X);
-					v.setStartJob(i);
-					v.setEndJob(j);
-					v.setTime(t);
-					v.setEquipmentTipe(eqType);
+	for(int j=0; j< data->numJobs; j++){
+		b.reset();
+		b.setType(V_BAUX);
+		b.setStartJob(j);
 
-					if(vHash.find(v) == vHash.end()) continue;
-
-					b.reset();
-					b.setType(V_BAUX);
-					b.setStartJob(i);
-					b.setEndJob(j);
-					b.setTime(t);
-					b.setEquipmentTipe(eqType);
-
-					if(vHash.find(b) == vHash.end()){
-						vHash[b] = true;
-						model->addVar(0.0,1.0,bigM,GRB_CONTINUOUS,b.toString());
-						cont ++;
-					}
-				}
-			}
+		if(vHash.find(b) == vHash.end()){
+			vHash[b] = true;
+			model->addVar(0.0,1.0,bigM,GRB_CONTINUOUS,b.toString());
+			cont ++;
 		}
 	}
 	contVars += cont;
-	cout << "Total b aux variables created: " << cout << endl;
+	cout << "Total b aux variables created: " << cont << endl;
 	
 	cont = 0;
 	cout << "Creating f auxiliary variables." << endl;
@@ -589,15 +569,15 @@ void Solver::buildDWM()
 	//CREATE CONSTRAINTS
 	//----------------------
 	cont = 0;
-	cout << "Creating route number constraints." << endl;
-	//Cardinality constraints
+	cout << "Creating convexity constraints." << endl;
+	//Route number constraints
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
 		
 		GRBLinExpr expr = 0;
 
 		c.reset();
-		c.setType(C_CARD);
+		c.setType(C_CONV);
 		c.setEquipmentType(eqType);
 		c.setId(cont);
 
@@ -615,63 +595,34 @@ void Solver::buildDWM()
 	}
 	cDualVars = cont;
 	contCons += cont;
-	cout << "Convex constraints created: " << cont << endl;
+	cout << "Convexity constraints created: " << cont << endl;
 	
+
+	//Add auxiliary variables to cover constraints
 	cont = 0;
-	cout << "Creating explicit master constraints." << endl;
-	//Explicit master constraints
-	for(int i=0; i < data->numJobs; i++){
-		Job *iJob = data->jobs[i];
-		for(int j=0; j < data->numJobs; j++){
-			for(int t=iJob->getFirstStartTimePeriod(); t <= iJob->getLastStartTimePeriod(); t++){
-				for(int eqType=0; eqType < data->numEquipments; eqType++){
-					GRBLinExpr expr = 0;
+	cout << "Adding b aux vaiables to cover constraints." << endl;
+	for(int j=0; j<data->numJobs; j++){
+		c.reset();
+		c.setType(C_COVER);
+		c.setStartJob(j);
 
-					c.reset();
-					c.setType(C_EXPLICIT);
-					c.setStartJob(i);
-					c.setEndJob(j);
-					c.setTime(t);
-					c.setEquipmentType(eqType);
-					c.setId(cont);
+		v.reset();
+		v.setType(V_BAUX);
+		v.setStartJob(j);
 
-					v.reset();
-					v.setType(V_X);
-					v.setStartJob(i);
-					v.setEndJob(j);
-					v.setTime(t);
-					v.setEquipmentTipe(eqType);
-
-					b.reset();
-					b.setType(V_BAUX);
-					b.setStartJob(i);
-					b.setEndJob(j);
-					b.setTime(t);
-					b.setEquipmentTipe(eqType);
-
-					if(cHash.find(c) == cHash.end() && vHash.find(v) != vHash.end() && vHash.find(b) != vHash.end()){
-						var1 = model->getVarByName(v.toString());
-						var2 = model->getVarByName(b.toString());
-						expr += var1;
-						expr -= var2;
-						cHash[c] = true;
-						model->addConstr(expr == 0, c.toString());
-						cont ++;
-					}
-
-				}
-			}
-		}
+		if(cHash.find(c) != cHash.end() && vHash.find(v) != vHash.end()){
+			var1 = model->getVarByName(v.toString());
+			cons = model->getConstrByName(c.toString());
+			model->chgCoeff(cons,var1,1.0);
+		}			
 	}
-	eDualVars = cont;
-	contCons += cont;
-	cout << "Total explicit master constraints: " << cont << endl;
+	
 	cout << "Total constraints specific to the DWM: " << cont << endl;
 
 	model->update();
 	//----------------------
 
-	model->write("modelo_EDWM.lp");
+	model->write("modelo_DWM.lp");
 }
 
 int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
@@ -724,7 +675,7 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				if(spSolver->routes.size() == 0) continue;
 
 				//Append routes to generated routes vector
-				minRouteCost = spSolver->routes[0]->getCost();
+				minRouteCost = spSolver->routes[0]->getReducedCost();
 				generatedRoutes.insert(generatedRoutes.end(),spSolver->routes.begin(),spSolver->routes.end());
 				lagrangeanBound -= (e->getNumMachines() * minRouteCost);
 			}
@@ -755,19 +706,22 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				for(; rit != eit; rit++){
 					myRoute = (*rit);
 					myRoute->setRouteNumber(routeCounter++);
-					//cout << myRoute->toString() << endl;
+					cout << myRoute->toString() << endl;
+
 					if(!node->addColumn(myRoute)){
 						cout << "Error: column " << myRoute->getRouteNumber() << "," 
 							<< myRoute->getEquipmentType() << " already existed in node " << node->getNodeId() << endl;
 					}
-					delete myRoute;
+					//delete myRoute;
 					rCount ++;
 					totalRoutes ++;
-				}					
+				}			
+				//node->getModel()->write("Test.lp");
+				//getchar();
 				generatedRoutes.clear();
 			}
 
-			if(iteration % 5 == 0 || end){
+			if(iteration % 1 == 0 || end){
 				output << left;
 				output << "| " << "Id: " << setw(4) << node->getNodeId() << " Unexp: " << setw(4) << treeSize << " Iter: " << setw(5) << iteration;
 				output << "| " << "Zlp: " << setw(7) << Zlp << " ZInc: " << setw(7) << ZInc;
@@ -784,7 +738,7 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 		}
 	}
 
-	//node->printSolution();
+	node->printSolution();
 	return status;
 }
 
@@ -866,8 +820,13 @@ int Solver::BaP(Node *node)
 		Node *nodeIzq = new Node(*currentNode);
 		Node *nodeDer = new Node(*currentNode);
 
-		nodeIzq->addBranchConstraint(branchV, 0.0);
-		nodeDer->addBranchConstraint(branchV, 1.0);
+		bool addBranch1 = nodeIzq->addBranchConstraint(branchV, 0.0);
+		bool addBranch2 = nodeDer->addBranchConstraint(branchV, 1.0);
+
+		if(!addBranch1 || !addBranch2){
+			cout << "ATENTION: error adding branch constraint on variable: " << branchV.toString() << endl;
+			break;
+		}
 
 		myStack.push_back(nodeIzq);
 		myStack.push_back(nodeDer);

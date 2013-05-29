@@ -21,7 +21,7 @@ enum ConstraintType
    C_SYNCH,
    C_OVF_FLOW_INIT,
    C_OVF_FLOW,
-   C_CARD,
+   C_CONV,
    C_EXPLICIT,
    C_BRANCH
 };
