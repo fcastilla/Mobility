@@ -7,6 +7,7 @@
 #include "Solution.h"
 #include "GlobalParameters.h"
 
+#include <sstream>
 #include <time.h>
 #include <set>
 
@@ -46,6 +47,8 @@ private:
 	GlobalParameters *parameters;
 	SubproblemSolver *spSolver;
 	set<Solution*> solutions;
+
+	stringstream separator;
 
 	double bigM;
 

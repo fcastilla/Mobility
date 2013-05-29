@@ -83,7 +83,7 @@ void QRouteBucket::evaluate(set<Label*,LabelComparator> oLabels, double rCost, b
 	}
 
 	//Mantain the label structure of propper size
-	if(labels.size() > parameters->getMaxRoutes()){
+	if(labels.size() > maxSize){
 		set<Label*,LabelComparator>::iterator it = labels.end();
 		--it;
 		Label *tempLabel = (*it);
@@ -156,7 +156,7 @@ void QRouteNoLoopBucket::evaluate(set<Label*,LabelComparator> oLabels, double rC
 	}
 
 	//Mantain the label structure of propper size
-	if(labels.size() > parameters->getMaxRoutes()){
+	if(labels.size() > maxSize){
 		set<Label*,LabelComparator>::iterator it = labels.end();
 		--it;
 		Label *tempLabel = (*it);

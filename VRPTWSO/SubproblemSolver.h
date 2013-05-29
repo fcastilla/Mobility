@@ -48,7 +48,6 @@ private:
 	bool infeasible;
 
 	vector<vector<bool>> visited;
-	vector<vector<vector<double>>> reducedCosts;
 	vector<vector<Bucket*>> fMatrix;
 	vector<int> fixatedVars;
 

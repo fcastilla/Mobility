@@ -13,15 +13,14 @@ SubproblemSolver::SubproblemSolver(ProblemData *d, SubproblemType m) : data(d), 
 {
 	infinityValue = 1e13;
 
+	//Global parameters
+	parameters = GlobalParameters::getInstance();
+
 	//Initialize fixatedVars vector
 	fixatedVars = vector<int>(data->numJobs,0);	
 
 	//Visited vertex vector
 	vector<vector<bool>> visited = vector<vector<bool>>(data->numJobs, vector<bool>(data->horizonLength+1,false));
-
-	//Initialize reduced costs matrix
-	reducedCosts = vector<vector<vector<double> > >(data->numJobs, 
-		vector<vector<double> >(data->numJobs, vector<double>(data->horizonLength + 1)));
 
 	//Initialize FMatrix
 	fMatrix = vector<vector<Bucket*> >(data->numJobs, vector<Bucket*>(data->horizonLength + 1));
@@ -29,10 +28,17 @@ SubproblemSolver::SubproblemSolver(ProblemData *d, SubproblemType m) : data(d), 
 		for(int t=0; t <= data->horizonLength; t++){
 			switch(method){
 				case QROUTE:
-					fMatrix[j][t] = new QRouteBucket();
+					if(j==0 && t == data->horizonLength)
+						fMatrix[j][t] = new QRouteBucket(parameters->getMaxRoutes());
+					else
+						fMatrix[j][t] = new QRouteBucket(1);
+
 					break;
 				case QROUTE_NOLOOP:
-					fMatrix[j][t] = new QRouteNoLoopBucket();
+					if(j==0 && t == data->horizonLength)
+						fMatrix[j][t] = new QRouteNoLoopBucket(parameters->getMaxRoutes());
+					else
+						fMatrix[j][t] = new QRouteNoLoopBucket(2);
 					break;
 			}
 
@@ -44,22 +50,13 @@ SubproblemSolver::SubproblemSolver(ProblemData *d, SubproblemType m) : data(d), 
 	//Initialize routes vector
 	routes = vector<Route*>();
 
-	//Global parameters
-	parameters = GlobalParameters::getInstance();
-
 }
 
 SubproblemSolver::~SubproblemSolver()
 {
 	//fixatedVars
 	fixatedVars.clear();
-
-	//Reduced Costs Matrix
-	reducedCosts.clear();
-
-	//FMatrix
-	fMatrix.clear();
-
+	
 	//Routes
 	routes.clear();
 }
@@ -72,9 +69,6 @@ void SubproblemSolver::reset()
 	for(int j=0; j < data->numJobs; j++){
 		for(int t=0; t <= data->horizonLength; t++){
 			fMatrix[j][t]->reset();
-			for(int i=0; i < data->numJobs; i++){
-				reducedCosts[j][i][t] = 0;
-			}
 		}
 	}
 
@@ -226,7 +220,8 @@ void SubproblemSolver::solve(Node *node, int eqType, int maxRoutes)
 
 				if(previousLabel != nullptr){
 					cost += e->getNotRoundedTransitionTime(previousLabel->getJob(),currentLabel->getJob());
-					myRoute->edges.push_back(new Edge(previousLabel->getJob(),currentLabel->getJob(), previousLabel->getTime()));
+					//myRoute->edges.push_back(new Edge(previousLabel->getJob(),currentLabel->getJob(), previousLabel->getTime()));
+					myRoute->edges.push_back(data->getEdge(previousLabel->getJob(), currentLabel->getJob(), previousLabel->getTime()));
 				}
 			}
 			currentLabel = previousLabel;

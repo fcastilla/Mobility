@@ -150,10 +150,32 @@ void ProblemData::readData(const std::string & fileName)
 	//Initialize problem network
 	problemNetwork = vector<vector<Vertex*>>(numJobs, vector<Vertex*>(horizonLength + 1, nullptr));
 	vertexSet = set<Vertex*,VertexComparator>();
+	edges = vector<vector<vector<Edge*>>>(numJobs, vector<vector<Edge*>>(numJobs, vector<Edge*>(horizonLength + 1, nullptr)));
 	parameters = GlobalParameters::getInstance();
 	parameters->setNumJobs(numJobs);
 	parameters->setNumEquipments(numEquipments);
 	parameters->setHorizonLength(horizonLength);
 
 	
+}
+
+void ProblemData::addEdge(int j, int i, int t)
+{
+	//Verify if edge already exist
+	if(edges[j][i][t] == nullptr)
+		edges[j][i][t] = new Edge(j,i,t);
+}
+
+Edge* ProblemData::getEdge(int j, int i, int t)
+{
+	//Verify existance of the edge
+	if(edges[j][i][t] != nullptr){
+		return edges[j][i][t];
+	}else{
+		std::cout << "A route was created using unexistent edge: " << j << "," << i << "," << t << endl;
+		getchar();
+		exit(0);
+	}
+
+	return nullptr;
 }

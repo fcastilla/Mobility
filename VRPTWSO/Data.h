@@ -45,6 +45,10 @@ struct ProblemData
 	//problem network
 	vector<vector<Vertex*>> problemNetwork;
 	set<Vertex*,VertexComparator> vertexSet;
+	vector<vector<vector<Edge*>>> edges;
+
+	void addEdge(int j, int i, int t);
+	Edge *getEdge(int j, int i, int t);
 
 	void readData(const std::string & inputFileName);
 };

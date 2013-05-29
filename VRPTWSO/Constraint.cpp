@@ -105,7 +105,7 @@ std::string Constraint::toString()
 			str << "FLOW_" << sJob << "," << time << "," << eqType;
 			break;
 		case C_CONV:
-			str << "CARD_" << eqType;
+			str << "CONV_" << eqType;
 			break;
 		case C_EXPLICIT:
 			str << "EXPLICIT_" << sJob << "," << eJob << "," << time << "," << eqType;

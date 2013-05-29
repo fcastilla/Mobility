@@ -20,23 +20,11 @@ using namespace std;
 class Route
 {
 public:
-	Route(Route *r){
-		routeNumber = r->getRouteNumber();
-		eqType = r->getEquipmentType();
-		cost = r->getCost();
-		reducedCost = r->getReducedCost();
-		solVal = r->getSolVal();
-		edges = r->edges;
-	}
+	Route(Route *r);
 	Route() : routeNumber(-1), eqType(-1), cost(0), reducedCost(0), solVal(0) { edges = vector<Edge*>(); }
 	Route(int e) : routeNumber(-1), eqType(e), cost(0), reducedCost(0), solVal(0){ edges = vector<Edge*>(); }
 
-	~Route(){
-		vector<Edge*>::iterator it = edges.begin();
-		for(; it != edges.end(); it++)
-			delete (*it);
-		edges.clear(); 
-	}
+	~Route();
 
 	vector<Edge*> edges;
 
@@ -81,12 +69,18 @@ public:
 
 	string toString(){ 
 		stringstream s;
-		s << "Route:" << setw(8) << routeNumber << " | RCost:" << setw(8) << reducedCost << " | EqType:" << eqType << " = ";
+		s << "Route:" << setw(8) << routeNumber << " | Cost:" << setw(8) << cost << " | EqType:" << eqType << " = ";
 		Edge *myEdge;
+		int cont = 0;
 		vector<Edge*>::reverse_iterator it = edges.rbegin();
 		for(; it != edges.rend(); it++){
 			myEdge = (*it);			
-			s << "(" << myEdge->getStartJob() << "," << myEdge->getEndJob() << "," << myEdge->getTime() << ")->";
+			
+			if(cont != 0)
+				s << "->";			
+			cont ++;
+
+			s << "(" << myEdge->getStartJob() << "," << myEdge->getEndJob() << "," << myEdge->getTime() << ")";
 		}
 		return s.str();
 	}

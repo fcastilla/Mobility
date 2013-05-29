@@ -112,7 +112,7 @@ class VariableRankComparator
 {
 public:
     bool operator()(const Variable& v1, const Variable& v2){
-        return v1.getRank() < v2.getRank();
+        return v1.getRank() > v2.getRank();
     }
 };
 

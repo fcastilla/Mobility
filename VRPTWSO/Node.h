@@ -60,6 +60,7 @@ public:
 	const Variable getMostFractional();
 	bool isIntegerSolution(){ return isInteger; }
 
+	bool addColumns(vector<Route*> &routes, int &rCounter);
 	bool addColumn(Route *r);
 	bool addBranchConstraint(Variable v, double rhs);
 	int fixVarsByReducedCost(double maxRC);

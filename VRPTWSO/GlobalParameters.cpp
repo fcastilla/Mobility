@@ -7,8 +7,9 @@ GlobalParameters::GlobalParameters()
 {
 	bigM = 10000;
 	epsilon = 1e-5;
-	maxRoutesPerIteration = 1;
+	maxRoutesPerIteration = 10;
 	dualStabilization = false;
+	printLevel = 0;
 }
 
 GlobalParameters* GlobalParameters::getInstance()

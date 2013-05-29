@@ -38,7 +38,6 @@ Node::~Node()
 
 int Node::solve()
 {
-	//model->write("modelo.lp");
 	model->optimize();
 	solStatus = model->get(GRB_IntAttr_Status);
 	
@@ -47,7 +46,7 @@ int Node::solve()
 
 	Zlp = model->get(GRB_DoubleAttr_ObjVal);
 	updateVariables(solStatus);
-	if(parameters->useDualStabilization()){
+	if(parameters->useDualStabilization() && model->get(GRB_IntAttr_IsMIP) == 0){
 		getCurrentPi();
 		calculateAlphaPi();
 	}
@@ -82,7 +81,7 @@ void Node::getCurrentPi()
 			myConstr = model->getConstrByName(c.toString());			
 			pi = myConstr.get(GRB_DoubleAttr_Pi); 
 			currentPi_c[c.getId()] = pi;
-		}else if(c.getType() == C_EXPLICIT){			
+		}else if(c.getType() == C_SYNCH){			
 			myConstr = model->getConstrByName(c.toString());			
 			pi = myConstr.get(GRB_DoubleAttr_Pi); 
 			currentPi_e[c.getId()] = pi;
@@ -101,8 +100,8 @@ void Node::calculateAlphaPi()
 
 void Node::updatePi()
 {
-	feasiblePi_c = alphaPi_c;
-	feasiblePi_e = alphaPi_e;
+	alphaPi_c = feasiblePi_c;
+	alphaPi_e = feasiblePi_e;
 }
 
 double Node::getMaxPiDifference()
@@ -263,15 +262,45 @@ bool Node::addBranchConstraint(Variable v, double rhs)
 	return false;
 }
 
+bool Node::addColumns(vector<Route*> &routes, int &rCounter)
+{
+	Route *myRoute;
+	vector<Route*>::iterator rit, eit;
+
+	//Verify Routes
+	rit = routes.begin();
+	eit = routes.end();
+	for(; rit != eit; rit++){
+		myRoute = (*rit);
+		//Verify
+		verifyRouteCost(myRoute);
+	}
+
+	//Add columns	
+	rit = routes.begin();
+	eit = routes.end();
+	for(; rit != eit; rit++){
+		myRoute = (*rit);
+		myRoute->setRouteNumber(rCounter++);
+		//cout << myRoute->toString() << endl;
+
+		if(!addColumn(myRoute)){
+			cout << "Error: column " << myRoute->getRouteNumber() << "," 
+				<< myRoute->getEquipmentType() << " already existed in node " << nodeId << endl;
+			getchar();
+			exit(0);
+		}
+	}
+	
+	return true;
+}
+
 bool Node::addColumn(Route *route)
 {	
 	Variable v;
 
 	Constraint c1, c2;
 	ConstraintHash::iterator cit1, cit2;
-
-	//Verify
-	verifyRouteCost(route);
 
 	int routeNumber = route->getRouteNumber();
 	int eqType = route->getEquipmentType();
@@ -308,7 +337,7 @@ bool Node::addColumn(Route *route)
 
 	//Add column (Synch constraints)
 	Edge *myEdge;
-	GRBConstr explicitConstr;
+	GRBConstr convConstr;
 	vector<Edge*>::iterator eit = route->edges.begin();
 	while(eit != route->edges.end()){
 		myEdge = (*eit);
@@ -327,8 +356,8 @@ bool Node::addColumn(Route *route)
 				return false;
 			}
 
-			explicitConstr = model->getConstrByName(c2.toString());
-			model->chgCoeff(explicitConstr, lambda, 1.0);
+			convConstr = model->getConstrByName(c2.toString());
+			model->chgCoeff(convConstr, lambda, 1.0);
 		}
 
 		eit++;
@@ -365,13 +394,14 @@ int Node::fixVarsByReducedCost(double maxRC)
 		}
 	}
 
-	model->update();
+	//model->update();
 	return deletedVars;
 }
 
 int Node::cleanNode(int maxRoutes)
 {
 	int cont = 0;
+	int contDel = 0;
 	vector<Variable> lambdas;
 
 	GRBVar lambda;
@@ -390,26 +420,27 @@ int Node::cleanNode(int maxRoutes)
 
 	VariableRankComparator varRankComparator;
 	sort(lambdas.begin(),lambdas.end(),varRankComparator);
-		
+	
+	Variable v;
 	vector<Variable>::iterator it = lambdas.begin();
 
 	while(it != lambdas.end()){
 		if(cont < maxRoutes){
 			cont++;
 		}else{
-			delete (*it).getRoute();
-			vit = vHash.find(*it);
+			v = *it;
+			vit = vHash.find(v);
 			vHash.erase(vit);			
-			lambda = model->getVarByName((*it).toString());
+			lambda = model->getVarByName(v.toString());
 			model->remove(lambda);
-			cont++;
+			contDel++;
 		}
 		it++;
 	}
 
 	lambdas.clear();
 	model->update();
-	return cont;
+	return contDel;
 }
 
 double Node::getVarLB(Variable v)
@@ -514,12 +545,17 @@ double Node::verifyRouteCost(Route *route)
 		std::cout << "Adding Column " << v.toString() << ": Cardinality constraint didn't exist." << std::endl;
 		return false;
 	}
-	GRBConstr cardConstr = model->getConstrByName(c1.toString());
-	routeRC -= cardConstr.get(GRB_DoubleAttr_Pi);
+
+	if(parameters->useDualStabilization()){
+		routeRC -= alphaPi_c[c1.getId()];	
+	}else{
+		GRBConstr cardConstr = model->getConstrByName(c1.toString());
+		routeRC -= cardConstr.get(GRB_DoubleAttr_Pi);
+	}
 
 	//Add column (Synch constraints)
 	Edge *myEdge;
-	GRBConstr explicitConstr;
+	GRBConstr convConstr;
 	vector<Edge*>::iterator eit = route->edges.begin();
 	while(eit != route->edges.end()){
 		myEdge = (*eit);
@@ -537,9 +573,13 @@ double Node::verifyRouteCost(Route *route)
 				std::cout << "Adding Column " << v.toString() << ": synch constraint didn't exist." << std::endl;
 				return false;
 			}
-
-			explicitConstr = model->getConstrByName(c2.toString());
-			routeRC -= explicitConstr.get(GRB_DoubleAttr_Pi);
+			
+			if(parameters->useDualStabilization()){
+				routeRC -= alphaPi_e[c2.getId()];	
+			}else{
+				convConstr = model->getConstrByName(c2.toString());
+				routeRC -= convConstr.get(GRB_DoubleAttr_Pi);
+			}
 		}
 
 		eit++;
@@ -590,7 +630,7 @@ void Node::printSolution()
 
 	for(; vit != eit; vit++){
 		v = vit->first;
-		if(v.getType() == V_W) continue;
+		if(v.getType() != V_LAMBDA) continue;
 		if(v.getValue() > 0.00001)
 			cout << v.toString() << " = " << v.getValue() << endl;
 	}

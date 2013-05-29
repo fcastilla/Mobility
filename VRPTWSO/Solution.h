@@ -7,11 +7,13 @@
 
 using namespace std;
 
+class Route;
+
 class Solution
 {
 public:
-	Solution(){ routes = vector<Route*>(); }
-	~Solution(){ routes.clear(); }
+	Solution();
+	~Solution();
 
 	//GET METHODS
 	double getSolutionValue() const { return solutionVal; }
@@ -26,23 +28,13 @@ public:
 		return this->getSolutionValue() < sol->getSolutionValue();
 	}
 
-	string toString(){
-		stringstream output;
-		output << "---------------------------------------------" << endl;
-		output << "Solution value: " << solutionVal << endl;
-		output << "Selected Routes: " << endl;
-		vector<Route*>::iterator it = routes.begin();
-		while(it != routes.end()){
-			output << (*it)->toString() << endl;
-			it ++;
-		}
-		output << "---------------------------------------------" << endl;
-
-		return output.str();
-	}
+	//OTHER METHODS
+	string toString();
 
 private:
 	GlobalParameters *parameters;
 	double solutionVal;
 	vector<Route*> routes;
 };
+
+std::ostream& operator << (std::ostream& out, Solution &sol);

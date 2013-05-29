@@ -36,6 +36,9 @@
     <Filter Include="Header Files\Output">
       <UniqueIdentifier>{f3259751-f77c-40f0-8f22-8f867c6e4331}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Output">
+      <UniqueIdentifier>{6559073c-d3be-4483-a9e6-8e1f79695f6e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp">
@@ -70,6 +73,12 @@
     </ClCompile>
     <ClCompile Include="GlobalParameters.cpp">
       <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Route.cpp">
+      <Filter>Source Files\Subproblem</Filter>
+    </ClCompile>
+    <ClCompile Include="Solution.cpp">
+      <Filter>Source Files\Output</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

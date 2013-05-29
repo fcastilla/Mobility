@@ -14,6 +14,7 @@ public:
 	int getNumJobs(){ return numJobs; }
 	int getNumEquipments(){ return numEquipments; }
 	int getHorizonLength(){ return horizon; }
+	int getPrintLevel(){ return printLevel; }
 
 	//SET METHODS
 	void setBigM(double m){ bigM = m; }
@@ -28,6 +29,8 @@ public:
 private:
 	GlobalParameters();
 	static GlobalParameters *instance;
+
+	int printLevel;
 
 	int numJobs;
 	int numEquipments;

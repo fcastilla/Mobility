@@ -163,6 +163,7 @@ public:
 protected:
 	int job;
 	int time;
+	int maxSize;
 	set<Label*,LabelComparator> labels;
 	Bucket *successor;
 	GlobalParameters *parameters;
@@ -171,7 +172,8 @@ protected:
 class QRouteBucket : public Bucket
 {
 public:
-	QRouteBucket() { 
+	QRouteBucket(int size) { 
+		maxSize = size;
 		successor = nullptr;
 		parameters = GlobalParameters::getInstance(); 
 		labels = set<Label*,LabelComparator>();
@@ -185,7 +187,8 @@ public:
 class QRouteNoLoopBucket : public Bucket
 {
 public:
-	QRouteNoLoopBucket() { 
+	QRouteNoLoopBucket(int size) {
+		maxSize = size;
 		successor = nullptr;
 		parameters = GlobalParameters::getInstance(); 
 		labels = set<Label*,LabelComparator>();

@@ -4,7 +4,6 @@
 #include "Route.h"
 #include "Node.h"
 
-#include <sstream>
 #include <iomanip>
 #include <vector>
 #include <queue>
@@ -15,6 +14,9 @@ Solver::Solver(ProblemData *d) : data(d)
 {
 	//Get global parameters
 	parameters = GlobalParameters::getInstance();
+
+	//For printing
+	separator << setw(180) << setfill('-') << "-" << setfill (' ') << endl;
 
 	//Create Gurobi enviroment and model
 	env = new GRBEnv();
@@ -72,6 +74,7 @@ int Solver::solve()
 	myEnv.set(GRB_IntParam_RINS, 1);
 	myEnv.set(GRB_IntParam_ZeroObjNodes, 1);
 	myEnv.set(GRB_IntParam_PumpPasses, 1);
+	myEnv.set(GRB_DoubleParam_TimeLimit, 6000);
 
 	//Create tempNode to get a first ZInc from ovf formulation
 	Node *tempNode = new Node(cDualVars, eDualVars);
@@ -86,7 +89,8 @@ int Solver::solve()
 	delete tempNode;
 
 	//Disable gurobi output
-	myEnv.set(GRB_IntParam_OutputFlag,0);
+	myEnv.set(GRB_IntParam_OutputFlag,0);	
+	myEnv.set(GRB_DoubleParam_TimeLimit, GRB_INFINITY);
 
 	//Build DWM model
 	buildDWM();
@@ -200,6 +204,7 @@ void Solver::buildInitialModel()
 						if(vHash.find(x) == vHash.end()){
 							vHash[x] = true;
 							model->addVar(0.0,1.0,transitionTime,GRB_INTEGER, x.toString());
+							data->addEdge(o->getJob(), d->getJob(), o->getTime());
 							cont++;
 						}					
 					}else{
@@ -292,6 +297,7 @@ void Solver::buildInitialModel()
 				c1.setStartJob(j);
 				c1.setTime(t);
 				c1.setEquipmentType(eqType);
+				c1.setId(cont);
 
 				if(cHash.find(c1) == cHash.end()){
 					GRBLinExpr expr = 0;				
@@ -319,6 +325,7 @@ void Solver::buildInitialModel()
 			}
 		}
 	}
+	eDualVars = cont;
 	contCons += cont;
 	cout << "Total synchronization constraints created: " << cont << endl;
 
@@ -614,10 +621,11 @@ void Solver::buildDWM()
 			var1 = model->getVarByName(v.toString());
 			cons = model->getConstrByName(c.toString());
 			model->chgCoeff(cons,var1,1.0);
+			cont++;
 		}			
 	}
-	
-	cout << "Total constraints specific to the DWM: " << cont << endl;
+	cout << "B aux vars created: " << cont << endl;
+	cout << "Total constraints specific to the DWM: " << contCons << endl;
 
 	model->update();
 	//----------------------
@@ -629,13 +637,17 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 {
 	int status = GRB_INPROGRESS;
 	double Zlp = 1e13;
+	
+	int rCount;
+	double minRouteCost = 0.0;
+
 	double lagrangeanBound = 0.0;
 	int fixatedVars;
 	int totalFixatedVars = 0;
-	int rCount;
-	int totalRoutes = 0;
-	double minRouteCost = 0.0;
+	bool tryToFixVars = true;
+
 	int iteration = 0;
+	int printFrequency = (parameters->getPrintLevel() > 0)? 1 : 5;
 
 	//Reset subproblem solver and collapse vertices
 	spSolver->reset();
@@ -695,50 +707,45 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				}
 			}else{
 				//fix variables by reduced cost.
-				if(iteration % 10 == 0){
-					//fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
-					totalFixatedVars += fixatedVars;
-				}
-
-				//Add routes to the model
-				rit = generatedRoutes.begin();
-				eit = generatedRoutes.end();
-				for(; rit != eit; rit++){
-					myRoute = (*rit);
-					myRoute->setRouteNumber(routeCounter++);
-					cout << myRoute->toString() << endl;
-
-					if(!node->addColumn(myRoute)){
-						cout << "Error: column " << myRoute->getRouteNumber() << "," 
-							<< myRoute->getEquipmentType() << " already existed in node " << node->getNodeId() << endl;
+				if(!parameters->useDualStabilization()){
+					if(iteration % 10 == 0 || tryToFixVars){
+						//fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
+						totalFixatedVars += fixatedVars;
+						if(fixatedVars)
+							tryToFixVars = true;
+						else
+							tryToFixVars = false;
 					}
-					//delete myRoute;
-					rCount ++;
-					totalRoutes ++;
-				}			
+				}
+				
+				//Add routes to the model
+				node->addColumns(generatedRoutes, routeCounter);
+				rCount += generatedRoutes.size();
+					
 				//node->getModel()->write("Test.lp");
 				//getchar();
 				generatedRoutes.clear();
 			}
 
-			if(iteration % 1 == 0 || end){
+			if(iteration % printFrequency == 0 || end){
 				output << left;
 				output << "| " << "Id: " << setw(4) << node->getNodeId() << " Unexp: " << setw(4) << treeSize << " Iter: " << setw(5) << iteration;
 				output << "| " << "Zlp: " << setw(7) << Zlp << " ZInc: " << setw(7) << ZInc;
-				output << "| " << "Routes: " << setw(5) << rCount << "Total: " << setw(5) << totalRoutes << " MinRC: " << setw(10) << minRouteCost;
+				output << "| " << "Routes: " << setw(5) << rCount << "Total: " << setw(5) << routeCounter << " MinRC: " << setw(10) << minRouteCost;
 				output << "| " << "LagBound: " << setw(10) << lagrangeanBound << " Fix: " << setw(4) << fixatedVars << " TFix: " << setw(5) << totalFixatedVars;
 				output << "| " << "Time: " << setw(5)  << (double)(clock() - tStart)/CLOCKS_PER_SEC << "s | ";
 
 				cout << output.str() << endl;
 			}
 		}else{ //INFEASIBLE
-			node->getModel()->write("modelo_inf.lp");
-			cout << "Infeasible" << endl;
+			//node->getModel()->write("modelo_inf.lp");
+			//cout << "Infeasible" << endl;
 			return GRB_INFEASIBLE;
 		}
 	}
 
-	node->printSolution();
+	if(parameters->getPrintLevel() > 0)
+		node->printSolution();
 	return status;
 }
 
@@ -751,24 +758,25 @@ int Solver::BaP(Node *node)
 	myStack.push_back(node);
 	Node *currentNode;
 
-	string sep = "-------------------------------------------------------------------";
-	cout << sep << endl;
+	cout << separator.str();
 	cout << "Starting branch and price algorithm. Initial Incumbent: " << ZInc << endl;
-	cout << sep << endl;
+	cout << separator.str();
 
 	while(myStack.size() > 0){
 		currentNode = myStack.back();
 		myStack.pop_back();
 		exploredNodes++;
 
-		cout << sep << endl;
-		cout << "Starting column generation on node " << exploredNodes << endl;
+		cout << separator.str();
+		if(parameters->getPrintLevel() > 0)
+			cout << "Starting column generation on node " << exploredNodes << endl;
 
 		currentNode->setNodeId(exploredNodes);
 		status = solveLPByColumnGeneration(currentNode, myStack.size());
 
-		cout << "Column generation on node " << exploredNodes << " completed." << endl;
-		cout << sep << endl;
+		if(parameters->getPrintLevel() > 0)
+			cout << "Column generation on node " << exploredNodes << " completed." << endl;
+			cout << separator.str();
 
 		if(status != GRB_OPTIMAL){
 			cout << "Node " << exploredNodes << " INFEASIBLE. " << endl;
@@ -780,10 +788,10 @@ int Solver::BaP(Node *node)
 				if(Zlp < ZInc || solutions.size() == 0){
 					Solution *s = currentNode->getSolution();
 					
-					cout << sep << endl;
+					cout << separator.str();
 					cout << "NEW INCUMBENT FOUND: " << endl;
 					cout << s->toString() << endl;
-					cout << sep << endl;
+					cout << separator.str();
 
 					solutions.insert(s);
 					ZInc = Zlp;
@@ -795,26 +803,20 @@ int Solver::BaP(Node *node)
 				continue;
 			}
 		}
-		
-		//Node cleaning
-		cout << sep << endl;
-		cout << "Cleaning node. " << endl;
-		int cleaned = currentNode->cleanNode(500);
-		cout << cleaned << " routes eliminated." << endl;
-		cout << sep << endl;
 
 		//Fix by reduced costs.
-		cout << sep << endl;
-		cout << "Fixating variables by reduced cost before branching. " << endl;
+		//cout << "Fixating variables by reduced cost before branching. " << endl;
 		int fix = currentNode->fixVarsByReducedCost(ZInc - currentNode->getZLP());
-		cout << fix << " variables eliminated." << endl;
-		cout << sep << endl;
+		cout << fix << " variables eliminated by reduced cost." << endl;
+		
+		//Node cleaning
+		//cout << "Cleaning node. " << endl;
+		int cleaned = currentNode->cleanNode(300);
+		cout << cleaned << " routes eliminated in node clening." << endl;
 
 		//Get branching candidate
 		Variable branchV = currentNode->getMostFractional();
-		cout << sep << endl;
 		cout << "Branching on variable: " << branchV.toString() << endl;
-		cout << sep << endl;
 
 		//Add two nodes to the stack
 		Node *nodeIzq = new Node(*currentNode);
@@ -836,10 +838,10 @@ int Solver::BaP(Node *node)
 	}
 
 	if(solutions.size() > 0){
-		cout << sep << endl;
+		cout << separator.str();
 		cout << "BEST SOLUTION FOUND: " << endl;
 		cout << (*solutions.begin())->toString() << endl;
-		cout << sep << endl;
+		cout << separator.str();
 	}else{
 		cout << "ATENTION: No solution found =( " << endl;
 	}
