@@ -74,11 +74,11 @@
     <ClCompile Include="GlobalParameters.cpp">
       <Filter>Source Files\Input</Filter>
     </ClCompile>
-    <ClCompile Include="Route.cpp">
-      <Filter>Source Files\Subproblem</Filter>
-    </ClCompile>
     <ClCompile Include="Solution.cpp">
       <Filter>Source Files\Output</Filter>
+    </ClCompile>
+    <ClCompile Include="Route.cpp">
+      <Filter>Source Files\Subproblem</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

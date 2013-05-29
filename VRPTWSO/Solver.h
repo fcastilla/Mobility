@@ -53,6 +53,7 @@ private:
 	double bigM;
 
 	//Global 
+	double lb, ub;
 	double ZInc;
 	int eDualVars;
 	int cDualVars;

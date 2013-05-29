@@ -730,7 +730,14 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 			if(iteration % printFrequency == 0 || end){
 				output << left;
 				output << "| " << "Id: " << setw(4) << node->getNodeId() << " Unexp: " << setw(4) << treeSize << " Iter: " << setw(5) << iteration;
-				output << "| " << "Zlp: " << setw(7) << Zlp << " ZInc: " << setw(7) << ZInc;
+				output << "| " << "Zlp: " << setw(7) << Zlp;
+				if(exploredNodes > 0)
+					output << " LB: " << setw(7) << lb;
+				output << " UB: " << setw(7) << ZInc;
+
+				double gap = (double)(ZInc / lb);
+				output << " Gap: " << gap << "% ";
+
 				output << "| " << "Routes: " << setw(5) << rCount << "Total: " << setw(5) << routeCounter << " MinRC: " << setw(10) << minRouteCost;
 				output << "| " << "LagBound: " << setw(10) << lagrangeanBound << " Fix: " << setw(4) << fixatedVars << " TFix: " << setw(5) << totalFixatedVars;
 				output << "| " << "Time: " << setw(5)  << (double)(clock() - tStart)/CLOCKS_PER_SEC << "s | ";
@@ -765,14 +772,15 @@ int Solver::BaP(Node *node)
 	while(myStack.size() > 0){
 		currentNode = myStack.back();
 		myStack.pop_back();
-		exploredNodes++;
 
 		cout << separator.str();
 		if(parameters->getPrintLevel() > 0)
 			cout << "Starting column generation on node " << exploredNodes << endl;
 
 		currentNode->setNodeId(exploredNodes);
-		status = solveLPByColumnGeneration(currentNode, myStack.size());
+		status = solveLPByColumnGeneration(currentNode, myStack.size());		
+		exploredNodes++;
+		
 
 		if(parameters->getPrintLevel() > 0)
 			cout << "Column generation on node " << exploredNodes << " completed." << endl;
@@ -784,6 +792,11 @@ int Solver::BaP(Node *node)
 			continue;
 		}else{
 			double Zlp = currentNode->getZLP();
+			if(exploredNodes == 1){ //lb global
+				lb = Zlp;
+				currentNode->printSolution();
+			}
+
 			if(currentNode->isIntegerSolution()){
 				if(Zlp < ZInc || solutions.size() == 0){
 					Solution *s = currentNode->getSolution();
