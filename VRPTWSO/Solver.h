@@ -28,7 +28,7 @@ class Route;
 class Solver
 {
 public:
-	Solver(ProblemData *d);
+	Solver(ProblemData *d, int type);
 	~Solver();
 
 	//Model object and enviroment
@@ -45,6 +45,7 @@ public:
 private:
 	ProblemData *data;	
 	GlobalParameters *parameters;
+	int spType;
 	SubproblemSolver *spSolver;
 	set<Solution*> solutions;
 
@@ -53,16 +54,19 @@ private:
 	double bigM;
 
 	//Global 
-	double lb, ub;
+	double lb;
 	double ZInc;
+	double gap;
 	int eDualVars;
 	int cDualVars;
+	bool isInt;
 
 	//Statistics
 	int routeCounter;
 	int totalNodes;
 	int exploredNodes;
-	clock_t tStart;
+	int maxTreeHeight;
+	clock_t tStart, tEnd;
 
 	//Methods
 	void buildProblemNetwork();

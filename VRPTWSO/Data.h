@@ -50,6 +50,8 @@ struct ProblemData
 	void addEdge(int j, int i, int t);
 	Edge *getEdge(int j, int i, int t);
 
+	string fileName;
+	string getFileName(){ return fileName; }
 	void readData(const std::string & inputFileName);
 };
 

@@ -10,6 +10,9 @@ GlobalParameters::GlobalParameters()
 	maxRoutesPerIteration = 10;
 	dualStabilization = false;
 	printLevel = 0;
+	solveMIP = false;
+	numSolutions = 100;
+	timeLimit = 15000;
 }
 
 GlobalParameters* GlobalParameters::getInstance()

@@ -19,7 +19,7 @@ void Job::setTimePeriods(int horizonLength, const vector<Equipment*>& equipments
 	{
 		if (!workShifts[shiftIndex]) continue;
 
-		for (timeIndex = readyDates[shiftIndex]; timeIndex <= dueDates[shiftIndex] /*- serviceTime*/; timeIndex++){
+		for (timeIndex = readyDates[shiftIndex]; timeIndex <= dueDates[shiftIndex]; timeIndex++){
 			//shrink time window
 			if(timeIndex > (horizonLength - serviceTime - timeToDepot)) break;
 			if(timeIndex < timeToDepot) continue;

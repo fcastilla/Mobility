@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <vector>
 
-Node::Node(int c, int e) : Zlp(1e13), nodeId(-1), routeCount(0)
+Node::Node(int c, int e) : Zlp(1e13), nodeId(-1), routeCount(0), treeLevel(0)
 {
 	parameters = GlobalParameters::getInstance();
 	solution = nullptr;
@@ -19,7 +19,7 @@ Node::Node(int c, int e) : Zlp(1e13), nodeId(-1), routeCount(0)
 }
 
 Node::Node(const Node &other) : vHash(other.vHash), cHash(other.cHash), Zlp(1e13), 
-	nodeId(-1), solStatus(GRB_LOADED), routeCount(0)
+	nodeId(-1), solStatus(GRB_LOADED), routeCount(0), treeLevel(other.getTreeLevel()+1)
 {
 	model = new GRBModel(*other.model);
 	parameters = GlobalParameters::getInstance();
@@ -630,7 +630,7 @@ void Node::printSolution()
 
 	for(; vit != eit; vit++){
 		v = vit->first;
-		if(v.getType() != V_LAMBDA) continue;
+		//if(v.getType() != V_LAMBDA) continue;
 		if(v.getValue() > 0.00001)
 			cout << v.toString() << " = " << v.getValue() << endl;
 	}

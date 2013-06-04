@@ -44,6 +44,7 @@ public:
 	double getZLP(){ return Zlp; }
 	double getVarLB(Variable v);
 	int getRouteCount(){ return routeCount; }
+	int getTreeLevel() const { return treeLevel; }
 	double getDualVal(int j, int t, int e);
 
 	double getArcReducedCost(int j, int t, int e, double cost);
@@ -52,6 +53,7 @@ public:
 
 	//Set Methods
 	void setNodeId(int id){ nodeId = id; }
+	void setTreeLevel(int level){ treeLevel = level; }
 	void setModel(GRBModel *m){	model = new GRBModel(*m); }
 	void setVHash(VariableHash hash){ vHash = hash; }
 	void setCHash(ConstraintHash hash){ cHash = hash; }
@@ -79,6 +81,7 @@ private:
 	double Zlp;
 	bool isInteger;
 	int routeCount;
+	int treeLevel;
 
 	void updateVariables(int status);
 	

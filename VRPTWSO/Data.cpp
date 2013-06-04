@@ -3,9 +3,12 @@
 #include <fstream>
 #include <sstream>
 #include <math.h>
+#include <iomanip>
 
-void ProblemData::readData(const std::string & fileName)
+void ProblemData::readData(const std::string & inputFileName)
 {
+	fileName = inputFileName;
+
 	ifstream in;
 	in.open(fileName.c_str());
 	if (!in)
@@ -111,11 +114,13 @@ void ProblemData::readData(const std::string & fileName)
 			double distance = sqrt(
 				pow(origLocPtr->getX() - destLocPtr->getX(), 2.0)
 				+ pow(origLocPtr->getY() - destLocPtr->getY(), 2.0));
+
 			locDistances[origId][destId] = locDistances[destId][origId] = distance;
 			if (distance > maxLocDistance)
 				maxLocDistance = distance;
 		}
 	}
+
 
 	//Recalculate distances proportionally to max transition time 
 	//and initialize transition times for each equipment type

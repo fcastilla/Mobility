@@ -4,13 +4,40 @@
 #include "Route.h"
 #include "Node.h"
 
+#include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <vector>
 #include <queue>
 
+#define GUROBI_TEST
+
 string itos(int i) {stringstream s; s << i; return s.str(); }
 
-Solver::Solver(ProblemData *d) : data(d)
+string getFileSeparator(){
+	#ifdef _WIN32
+		return "\\";
+	#else
+		return "/";
+	#endif
+}
+
+string getSpTypeName(int type){
+	switch(type){
+		case QROUTE:
+			return "q-Route";
+			break;
+		case QROUTE_NOLOOP:
+			return "2Cycle";
+			break;
+		default:
+			return "N/A";
+	}
+}
+
+#define METHOD_MIP = 1;
+
+Solver::Solver(ProblemData *d, int type) : data(d), spType(type)
 {
 	//Get global parameters
 	parameters = GlobalParameters::getInstance();
@@ -26,7 +53,8 @@ Solver::Solver(ProblemData *d) : data(d)
 	bigM = parameters->getBigM();
 	
 	//Initialize subproblem solver vector
-	spSolver = new SubproblemSolver(data, QROUTE_NOLOOP);	
+	SubproblemType spMethod = static_cast<SubproblemType>(type);
+	spSolver = new SubproblemSolver(data, spMethod);	
 
 	//Solutions set
 	solutions = set<Solution*>();
@@ -54,10 +82,13 @@ int Solver::solve()
 	cDualVars = 0;
 
 	//Global parameters
+	lb = 1e13;
 	ZInc = 1e13;
+	gap = 1e13;
 	totalNodes = 0;
 	exploredNodes = 0;
 	routeCounter = 0;
+	maxTreeHeight = 0;
 
 	//Build problem graph representation
 	buildProblemNetwork();
@@ -68,25 +99,70 @@ int Solver::solve()
 	//Get a first integer feasible solution (ZInc)
 	GRBEnv myEnv = model->getEnv();
 	myEnv.set(GRB_IntParam_Method, GRB_METHOD_BARRIER);
+
+	
+#ifdef GUROBI_TEST
+
+	myEnv.set(GRB_DoubleParam_NodeLimit,1);
+
+	//TESTE GUROBI
+	model->optimize();
+	status = model->get(GRB_IntAttr_Status);
+	string optimal = (status == GRB_OPTIMAL)? "yes" : "no";
+	double objVal = model->get(GRB_DoubleAttr_ObjVal);
+	double bound = model->get(GRB_DoubleAttr_ObjBound);
+	tEnd = clock();
+
+	std::ifstream myFile("statisticsGurobi.csv");
+	bool isEmpty = myFile.peek() == std::ifstream::traits_type::eof();
+	myFile.close();
+
+	string fileName = data->getFileName();
+	unsigned pos = 0;
+
+	while(pos = fileName.find(getFileSeparator()) != std::string::npos){
+		fileName.erase(0, pos);
+	}
+
+	//Save statistics
+	ofstream statFile;
+	statFile.open("statisticsGurobi.csv", ios::out | ios::app);
+
+	//Header
+	if(isEmpty)
+		statFile << "File_Name,LB,ObjVal,Optimal,Time" << endl;
+	else
+		statFile << endl;
+
+	statFile << fileName << ",";
+	statFile << bound << ","; 
+	statFile << objVal << ",";
+	statFile << optimal << ","; 
+	statFile << (double)(tEnd - tStart)/CLOCKS_PER_SEC << "s" ; //Time
+
+	//getchar();
+
+#else
+	
 	myEnv.set(GRB_IntParam_MIPFocus, 1);
-	myEnv.set(GRB_IntParam_SolutionLimit, 1);
+	//myEnv.set(GRB_IntParam_SolutionLimit, 1);
 	myEnv.set(GRB_DoubleParam_Heuristics, 1);
 	myEnv.set(GRB_IntParam_RINS, 1);
 	myEnv.set(GRB_IntParam_ZeroObjNodes, 1);
 	myEnv.set(GRB_IntParam_PumpPasses, 1);
-	myEnv.set(GRB_DoubleParam_TimeLimit, 6000);
+	myEnv.set(GRB_DoubleParam_TimeLimit, 1200);
 
-	//Create tempNode to get a first ZInc from ovf formulation
-	Node *tempNode = new Node(cDualVars, eDualVars);
-	tempNode->setModel(model);
-	tempNode->setVHash(vHash);
-	tempNode->setCHash(cHash);
+	////Create tempNode to get a first ZInc from ovf formulation
+	//Node *tempNode = new Node(cDualVars, eDualVars);
+	//tempNode->setModel(model);
+	//tempNode->setVHash(vHash);
+	//tempNode->setCHash(cHash);
 
-	int s = tempNode->solve();
-	tempNode->printSolution();
-	ZInc = tempNode->getZLP();
-	cout << "Solution status: " << s << " - ZInc = " << ZInc << endl;
-	delete tempNode;
+	//int s = tempNode->solve();
+	////tempNode->printSolution();
+	//ZInc = tempNode->getZLP();
+	//cout << "Solution status: " << s << " - ZInc = " << ZInc << endl;
+	//delete tempNode;
 
 	//Disable gurobi output
 	myEnv.set(GRB_IntParam_OutputFlag,0);	
@@ -99,6 +175,8 @@ int Solver::solve()
 	rootNode->setModel(model);
 	rootNode->setVHash(vHash);
 	rootNode->setCHash(cHash);
+	rootNode->setNodeId(0);
+	rootNode->setTreeLevel(0);
 
 	//At this point, root node has its own copy of the model
 	delete model;
@@ -107,7 +185,99 @@ int Solver::solve()
 
 	//Solve DWM model by CG
 	tStart = clock();
-	status = BaP(rootNode);
+	if(parameters->solveByMIP()){
+		status = BaP(rootNode);
+	}else{
+		status = solveLPByColumnGeneration(rootNode,0);
+	}
+	tEnd = clock();
+
+	////--------------------------------------
+	////SAVE OUTPUT
+	////--------------------------------------	
+	string fileName = data->getFileName();
+	unsigned pos = 0;
+
+	while(pos = fileName.find(getFileSeparator()) != std::string::npos){
+		fileName.erase(0, pos);
+	}
+
+	//--------------------------------------
+	//SOLUTION FILE
+	//--------------------------------------
+	ofstream solFile;
+	solFile.open("solutions.txt", ios::out | ios::app);
+
+	//Begin of new solution
+	solFile << setw(80) << setfill('-') << "-" << setfill (' ') << endl;
+
+	//Instance name	
+	solFile << "#Instance: " << endl << fileName << endl;
+
+	Solution *mySolution;
+	if(parameters->solveByMIP()){		
+		if(solutions.size() > 0){
+			mySolution = (*solutions.begin());
+			solFile << *mySolution;
+		}else{
+			solFile << "No solution found. Final status was: " << status << endl;
+		}
+	}else{
+		mySolution = rootNode->getSolution();
+		solFile << *mySolution;
+	}
+	
+	//End of new solution
+	solFile << setw(80) << setfill('-') << "-" << setfill (' ') << endl;
+	solFile.close();
+	//--------------------------------------
+
+	//--------------------------------------
+	//STATISTICS FILE	
+	//--------------------------------------
+	//Verify if statistics file is empty
+	std::ifstream myFile("statistics.csv");
+	bool isEmpty = myFile.peek() == std::ifstream::traits_type::eof();
+	myFile.close();
+
+	//Save statistics
+	ofstream statFile;
+	statFile.open("statistics.csv", ios::out | ios::app);
+
+	//Header
+	if(isEmpty)
+		statFile << "File_Name,LB,UB,Gap,SP_Method,Exp_Nodes,Max_Tree_Height,Total_Routes,Integer,Time" << endl;
+	else
+		statFile << endl;
+
+	statFile << fileName << ","; //file Name
+	statFile << lb << ",";
+		
+	if(ZInc < 1e13)
+		statFile << ZInc << ",";
+	else
+		statFile << ",";
+
+	if(gap < 1e13)
+		statFile << gap << "%,";
+	else
+		statFile << ",";
+
+	statFile << getSpTypeName(spType) << ",";
+	statFile << exploredNodes << ",";
+	statFile << maxTreeHeight << ",";
+	statFile << routeCounter << ",";
+	if(isInt){
+		statFile << "Yes,";
+	}else{
+		statFile << "No,";
+	}
+	statFile << (double)(tEnd - tStart)/CLOCKS_PER_SEC << "s" ; //Time
+
+	statFile.close();
+	//--------------------------------------
+
+#endif
 
 	return status;
 }
@@ -661,6 +831,11 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 	while(!end){
 		stringstream output;
 
+		clock_t currentTime = clock();
+		double timeSpent = (double)(currentTime - tStart)/CLOCKS_PER_SEC;
+		if(timeSpent > parameters->getTimeLimit())
+			return GRB_INFEASIBLE;
+
 		//Solve current model
 		iteration ++;
 		status = node->solve();	
@@ -672,11 +847,13 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 			fixatedVars = 0;
 			double Zlp = node->getZLP();
 			lagrangeanBound = ZInc - Zlp;
+			minRouteCost = 0.0;
 
+			clock_t spInit, spEnd;
+			spInit = clock();
 			//Generate routes for each equipment type
 			for(int eqType = 0; eqType < data->numEquipments; eqType++){
-				Equipment *e = data->equipments[eqType];					
-				minRouteCost = 0.0;
+				Equipment *e = data->equipments[eqType];									
 				
 				spSolver->solve(node, eqType, 10);
 				if(spSolver->isInfeasible()){
@@ -687,10 +864,14 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				if(spSolver->routes.size() == 0) continue;
 
 				//Append routes to generated routes vector
-				minRouteCost = spSolver->routes[0]->getReducedCost();
+				minRouteCost = min(minRouteCost, spSolver->routes[0]->getReducedCost());
 				generatedRoutes.insert(generatedRoutes.end(),spSolver->routes.begin(),spSolver->routes.end());
 				lagrangeanBound -= (e->getNumMachines() * minRouteCost);
 			}
+			spEnd = clock();
+			double spTimeSpent = (double)(spEnd - spInit)/CLOCKS_PER_SEC;
+			if(parameters->getPrintLevel() > 0)
+				cout << "Consumed time generating routes: " << spTimeSpent << "s" << endl;
 
 			//If no routes where generated, the current lp solution is optimal
 			if(generatedRoutes.size() == 0){
@@ -707,16 +888,16 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				}
 			}else{
 				//fix variables by reduced cost.
-				if(!parameters->useDualStabilization()){
+				/*if(!parameters->useDualStabilization()){
 					if(iteration % 10 == 0 || tryToFixVars){
-						//fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
+						fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
 						totalFixatedVars += fixatedVars;
 						if(fixatedVars)
 							tryToFixVars = true;
 						else
 							tryToFixVars = false;
 					}
-				}
+				}*/
 				
 				//Add routes to the model
 				node->addColumns(generatedRoutes, routeCounter);
@@ -731,12 +912,21 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				output << left;
 				output << "| " << "Id: " << setw(4) << node->getNodeId() << " Unexp: " << setw(4) << treeSize << " Iter: " << setw(5) << iteration;
 				output << "| " << "Zlp: " << setw(7) << Zlp;
-				if(exploredNodes > 0)
+				
+				if(lb < 1e13)
 					output << " LB: " << setw(7) << lb;
-				output << " UB: " << setw(7) << ZInc;
+				else
+					output << " LB: " << setw(7) << "--";
 
-				double gap = (double)(ZInc / lb);
-				output << " Gap: " << gap << "% ";
+				if(ZInc < 1e13)
+					output << " UB: " << setw(7) << ZInc;
+				else
+					output << " UB: " << setw(7) << "--";
+
+				if(gap < 1e13)
+					output << " Gap: " << setprecision(3) << gap << "%" ;
+				else
+					output << " Gap: " << setw(7) << "--";
 
 				output << "| " << "Routes: " << setw(5) << rCount << "Total: " << setw(5) << routeCounter << " MinRC: " << setw(10) << minRouteCost;
 				output << "| " << "LagBound: " << setw(10) << lagrangeanBound << " Fix: " << setw(4) << fixatedVars << " TFix: " << setw(5) << totalFixatedVars;
@@ -751,8 +941,16 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 		}
 	}
 
+	if(parameters->solveByMIP() == false)
+		isInt = node->isIntegerSolution();
+
+	if(node->getNodeId() == 0)
+		lb = node->getZLP();
+
 	if(parameters->getPrintLevel() > 0)
 		node->printSolution();
+
+
 	return status;
 }
 
@@ -770,6 +968,11 @@ int Solver::BaP(Node *node)
 	cout << separator.str();
 
 	while(myStack.size() > 0){
+		clock_t currentTime = clock();
+		double timeSpent = (double)(currentTime - tStart)/CLOCKS_PER_SEC;
+		if(timeSpent > parameters->getTimeLimit())
+			break;
+
 		currentNode = myStack.back();
 		myStack.pop_back();
 
@@ -778,9 +981,11 @@ int Solver::BaP(Node *node)
 			cout << "Starting column generation on node " << exploredNodes << endl;
 
 		currentNode->setNodeId(exploredNodes);
-		status = solveLPByColumnGeneration(currentNode, myStack.size());		
-		exploredNodes++;
-		
+		status = solveLPByColumnGeneration(currentNode, myStack.size());
+		exploredNodes ++;
+
+		if(exploredNodes == 1)
+			currentNode->printSolution();
 
 		if(parameters->getPrintLevel() > 0)
 			cout << "Column generation on node " << exploredNodes << " completed." << endl;
@@ -792,11 +997,6 @@ int Solver::BaP(Node *node)
 			continue;
 		}else{
 			double Zlp = currentNode->getZLP();
-			if(exploredNodes == 1){ //lb global
-				lb = Zlp;
-				currentNode->printSolution();
-			}
-
 			if(currentNode->isIntegerSolution()){
 				if(Zlp < ZInc || solutions.size() == 0){
 					Solution *s = currentNode->getSolution();
@@ -808,6 +1008,10 @@ int Solver::BaP(Node *node)
 
 					solutions.insert(s);
 					ZInc = Zlp;
+					gap = (double)(ZInc / lb);
+
+					if(solutions.size() == parameters->getNumSolutions())
+						break; //quit bap with current solutions.
 				}
 				continue;
 			}else if(ceil(Zlp) >= ZInc && exploredNodes > 1){
@@ -818,12 +1022,10 @@ int Solver::BaP(Node *node)
 		}
 
 		//Fix by reduced costs.
-		//cout << "Fixating variables by reduced cost before branching. " << endl;
 		int fix = currentNode->fixVarsByReducedCost(ZInc - currentNode->getZLP());
 		cout << fix << " variables eliminated by reduced cost." << endl;
 		
 		//Node cleaning
-		//cout << "Cleaning node. " << endl;
 		int cleaned = currentNode->cleanNode(300);
 		cout << cleaned << " routes eliminated in node clening." << endl;
 
@@ -845,6 +1047,9 @@ int Solver::BaP(Node *node)
 
 		myStack.push_back(nodeIzq);
 		myStack.push_back(nodeDer);
+
+		//update tree height
+		maxTreeHeight = max(nodeIzq->getTreeLevel(), maxTreeHeight);
 		
 		//parent node not needed anymore
 		delete currentNode;
@@ -855,6 +1060,7 @@ int Solver::BaP(Node *node)
 		cout << "BEST SOLUTION FOUND: " << endl;
 		cout << (*solutions.begin())->toString() << endl;
 		cout << separator.str();
+		isInt = true;
 	}else{
 		cout << "ATENTION: No solution found =( " << endl;
 	}

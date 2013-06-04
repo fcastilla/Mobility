@@ -16,9 +16,12 @@ public:
 	~Solution();
 
 	//GET METHODS
+	string getInstanceName() const { return instanceName; }
 	double getSolutionValue() const { return solutionVal; }
+	vector<Route*> &getRoutes() { return routes; }
 
 	//SET METHODS
+	void setInstanceName(string name) { instanceName = name; }
 	void setSolutionValue(double val){ solutionVal = val; }
 	void addRoute(Route *r){ routes.push_back(r); }
 	
@@ -33,6 +36,7 @@ public:
 
 private:
 	GlobalParameters *parameters;
+	string instanceName;
 	double solutionVal;
 	vector<Route*> routes;
 };
