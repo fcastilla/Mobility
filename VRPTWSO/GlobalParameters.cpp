@@ -8,7 +8,7 @@ GlobalParameters::GlobalParameters()
 	bigM = 10000;
 	epsilon = 1e-5;
 	maxRoutesPerIteration = 2;
-	dualStabilization = false;
+	dualStabilization = false; 
 	printLevel = 0;
 	solveMIP = false;
 	numSolutions = 100;

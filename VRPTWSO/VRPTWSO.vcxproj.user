@@ -5,7 +5,7 @@
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <LocalDebuggerCommandArguments>../data/Benchmark_R106_d2_ws1_alt1_loc2_v3_seed33.txt</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>../Release/Solomon_synch/Benchmark_C101_d25_ws1_alt1_loc25_v2-2-2_seed33.txt 1</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
 </Project>

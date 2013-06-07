@@ -47,7 +47,7 @@ public:
 	int getTreeLevel() const { return treeLevel; }
 	double getDualVal(int j, int t, int e);
 
-	double getArcReducedCost(int j, int t, int e, double cost);
+	double getArcReducedCost(int s, int d, int sTime, int dTime, int e, double cost);
 	double getRouteUseReducedCost(int eqType);
 
 

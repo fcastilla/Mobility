@@ -183,7 +183,7 @@ void SubproblemSolver::solve(Node *node, int eqType, int maxRoutes)
 			//Get objective function value for arc Xjite (distance)
 			double dist = e->getNotRoundedTransitionTime(cJob,nJob);
 
-			rc = (cJob == nJob)? 0 : node->getArcReducedCost(cJob,cTime,eqType,dist);
+			rc = node->getArcReducedCost(cJob,nJob,cTime,nTime,eqType,dist);
 
 			fMatrix[nJob][nTime]->evaluate(fMatrix[cJob][cTime]->getLabels(), rc, false);
 		}

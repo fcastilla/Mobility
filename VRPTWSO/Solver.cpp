@@ -12,6 +12,7 @@
 
 //#define GUROBI_TEST
 #define CG_EXTENDED
+//#define CG_STANDARD
 
 string itos(int i) {stringstream s; s << i; return s.str(); }
 
@@ -161,7 +162,7 @@ int Solver::solve()
 	//myEnv.set(GRB_DoubleParam_TimeLimit, 1200);
 
 	//Disable gurobi output
-	//myEnv.set(GRB_IntParam_OutputFlag,0);	
+	myEnv.set(GRB_IntParam_OutputFlag,0);	
 	myEnv.set(GRB_DoubleParam_TimeLimit, GRB_INFINITY);
 
 	buildDWMForExtendedFormulations();
@@ -272,7 +273,8 @@ int Solver::solve()
 	statFile.close();
 	//--------------------------------------
 
-#else
+#endif
+#ifdef CG_STANDARD
 	myEnv.set(GRB_IntParam_MIPFocus, 1);
 	//myEnv.set(GRB_DoubleParam_TimeLimit, 1200);
 
@@ -400,6 +402,8 @@ void Solver::buildInitialModel()
 	int cont;
 	int contVars = 0;
 	int contCons = 0;
+
+	int contIdCons = 0;
 
 	cout << "*******************" << endl;
 	cout << "Creating ovf model." << endl;
@@ -581,7 +585,7 @@ void Solver::buildInitialModel()
 				c1.setStartJob(j);
 				c1.setTime(t);
 				c1.setEquipmentType(eqType);
-				c1.setId(cont);
+				c1.setId(contIdCons++);
 
 				if(cHash.find(c1) == cHash.end()){
 					GRBLinExpr expr = 0;				
@@ -622,6 +626,7 @@ void Solver::buildInitialModel()
 		c1.reset();
 		c1.setType(C_OVF_FLOW_INIT);
 		c1.setEquipmentType(eqType);
+		c1.setId(contIdCons++);
 
 		if(cHash.find(c1) != cHash.end()) continue;
 
@@ -668,6 +673,7 @@ void Solver::buildInitialModel()
 				c1.setStartJob(j);
 				c1.setTime(t);
 				c1.setEquipmentType(eqType);
+				c1.setId(contIdCons++);
 
 				if(cHash.find(c1) == cHash.end()){
 					GRBLinExpr expr = 0;
@@ -1115,11 +1121,11 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 		
 		/*node->getModel()->write("Test.lp");
 		getchar();*/
-		node->getModel()->write("Test.lp");
+		//node->getModel()->write("Test.lp");
 		gurobiStart = clock();
 		status = node->solve();
-		node->printSolution();
-		getchar();
+		//node->printSolution();
+		//getchar();
 		gurobiEnd = clock();
 
 		cout << endl <<  separator.str();
@@ -1173,7 +1179,7 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				
 				lagrangeanBound -= (e->getNumMachines() * minRouteCost);
 			}
-			getchar();
+			//getchar();
 			spEnd = clock();
 
 			double spTimeSpent = (double)(spEnd - spInit)/CLOCKS_PER_SEC;
@@ -1254,7 +1260,7 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 	if(node->getNodeId() == 0)
 		lb = node->getZLP();
 
-	if(parameters->getPrintLevel() > 0)
+	//if(parameters->getPrintLevel() > 0)
 		node->printSolution();
 
 
