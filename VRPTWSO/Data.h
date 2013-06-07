@@ -32,6 +32,8 @@ struct ProblemData
 	int numWorkShifts;
 	int workShiftLength;
 
+	double minDistance;
+
 	vector<Job*> jobs;
 	vector<Equipment*> equipments;
 
@@ -47,7 +49,7 @@ struct ProblemData
 	set<Vertex*,VertexComparator> vertexSet;
 	vector<vector<vector<Edge*>>> edges;
 
-	void addEdge(int j, int i, int t);
+	void addEdge(int j, int i, int t, int a, double c);
 	Edge *getEdge(int j, int i, int t);
 
 	string fileName;

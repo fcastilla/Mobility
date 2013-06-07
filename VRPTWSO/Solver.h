@@ -71,7 +71,9 @@ private:
 	//Methods
 	void buildProblemNetwork();
 	void buildInitialModel();
+
 	void buildDWM();
+	void buildDWMForExtendedFormulations();
 	void collapseSubproblemVertices();
 	
 	int BaP(Node *node);

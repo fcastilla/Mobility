@@ -2,6 +2,7 @@
 
 #include "GlobalParameters.h"
 #include <vector>
+#include <bitset>
 #include <set>
 
 #ifdef DEBUG
@@ -23,16 +24,20 @@ class Vertex;
 class Edge
 {
 public:
-	Edge(int i, int j, int t) : sJob(i), eJob(j), time(t){ }
+	Edge(int i, int j, int t, int a, double c) : sJob(i), eJob(j), time(t), aTime(a), cost(c){ }
 
 	int getStartJob() const { return sJob; }
 	int getEndJob() const { return eJob; }
 	int getTime() const { return time; }
+	double getCost() const{ return cost; }
+	int getArriveTime() const{ return aTime; }
 
 private:
 	int sJob;
 	int eJob;
 	int time;
+	int aTime;
+	double cost;
 };
 
 class Vertex
@@ -83,17 +88,19 @@ public:
 class Label
 {
 public:
-	Label() : job(0), time(0), cost(0.0), predecessor(nullptr), fixed(false) {}
-	Label(int j, int t) : job(j), time(t), cost(1e13), predecessor(nullptr), fixed(false) {}
-	Label(int j, int t, double c) : job(j), time(t), cost(c), predecessor(nullptr), fixed(false) {}
-	Label(int j, int t, double c, Label *p) : job(j), time(t), cost(c), predecessor(p), fixed(false) {}
-	~Label(){ predecessor = nullptr; }
+	Label() : job(0), time(0), cost(0.0), predecessor(nullptr), t_predecessor(nullptr), fixed(false) { }
+	Label(int j, int t) : job(j), time(t), cost(1e13), predecessor(nullptr), t_predecessor(nullptr), fixed(false) { }
+	Label(int j, int t, double c) : job(j), time(t), cost(c), predecessor(nullptr), t_predecessor(nullptr), fixed(false) {  }
+	Label(int j, int t, double c, Label *p) : job(j), time(t), cost(c), predecessor(p), t_predecessor(nullptr), fixed(false) {  }
+	~Label(){ predecessor = nullptr; t_predecessor =nullptr; }
+	
 
 	//GET METHODS
 	int getJob() const { return job; }
 	int getTime() const { return time; }
 	double getCost() const { return cost; }
 	Label *getPredecessor(){ return predecessor; }
+	Label *getTimePredecessor(){ return t_predecessor; }
 	bool isFixed() const{ return fixed; }
 
 	//SET METHODS
@@ -101,6 +108,7 @@ public:
 	void setTime(int t){ time = t; }
 	void setCost(double c){ cost = c; }
 	void setPredecessor(Label * p){ predecessor = p; }
+	void setTimePredecessor(Label *p){ t_predecessor = p; }
 	void setFixed(bool f){ fixed = f; }
 
 	bool operator<(const Label& other) const;
@@ -110,7 +118,7 @@ private:
 	int time;
 	double cost;
 	bool fixed;
-	Label *predecessor;
+	Label *predecessor, *t_predecessor;
 };
 
 class LabelComparator
@@ -145,6 +153,7 @@ public:
 	void addLabel(Label *l){ labels.insert(l); }
 	virtual void evaluate(set<Label*,LabelComparator> oLabels, double rCost, bool fix) = 0;
 	virtual Label *getBestLabel() = 0;
+
 
 	//GET METHODS
 	Bucket *getSuccessor(){ return successor; }

@@ -69,12 +69,14 @@ public:
 
 	string toString(){ 
 		stringstream s;
-		s << "Route:" << setw(4) << routeNumber << " | Cost:" << setw(8) << cost << " | EqType:" << eqType << " = ";
+		s << "Route:" << setw(4) << routeNumber << " | Cost:" << setw(5) << cost << " | RCost: " << setw(6) << reducedCost << " | EqType:" << eqType << " = ";
 		Edge *myEdge;
 		int cont = 0;
 		vector<Edge*>::reverse_iterator it = edges.rbegin();
 		for(; it != edges.rend(); it++){
 			myEdge = (*it);			
+
+			if(myEdge->getStartJob() == myEdge->getEndJob()) continue;
 			
 			if(cont != 0)
 				s << "->";			

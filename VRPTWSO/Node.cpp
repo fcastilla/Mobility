@@ -77,7 +77,7 @@ void Node::getCurrentPi()
 
 	while(cit != cHash.end()){
 		c = cit->first;
-		if(c.getType() == C_CONV){
+		if(c.getType() == C_OVF_FLOW_INIT){
 			myConstr = model->getConstrByName(c.toString());			
 			pi = myConstr.get(GRB_DoubleAttr_Pi); 
 			currentPi_c[c.getId()] = pi;
@@ -298,77 +298,295 @@ bool Node::addColumns(vector<Route*> &routes, int &rCounter)
 bool Node::addColumn(Route *route)
 {	
 	Variable v;
+	VariableHash::iterator vit;
 
-	Constraint c1, c2;
+	Constraint c, c1, c2;
 	ConstraintHash::iterator cit1, cit2;
+
+	GRBConstr cons;
+	GRBVar var;
 
 	int routeNumber = route->getRouteNumber();
 	int eqType = route->getEquipmentType();
+	int s,d,t,a;
 
-	//Create lambda variable
-	v.reset();
-	v.setType(V_LAMBDA);
-	v.setRouteNumber(routeNumber);
-	v.setEquipmentTipe(eqType);
-	v.setRoute(route);
+	//cout << "Adding route " << routeNumber << endl;
 
-	if(vHash.find(v) != vHash.end()){
-		std::cout << "Adding Column " << v.toString() << ": Lambda variable already existed! " << std::endl;
-		return false;
-	}
-
-	vHash[v] = true;
-	GRBVar lambda = model->addVar(0.0,1.0,route->getCost(),GRB_CONTINUOUS,v.toString()); //adds to the objective function
-	model->update(); 
-
-	double routeRC = route->getCost();
-
-	//Add column (Conv constraints)
-	c1.reset();
-	c1.setType(C_CONV);
-	c1.setEquipmentType(eqType);
-
-	if(cHash.find(c1) == cHash.end()){
-		std::cout << "Adding Column " << v.toString() << ": Cardinality constraint didn't exist." << std::endl;
-		return false;
-	}
-	GRBConstr cardConstr = model->getConstrByName(c1.toString());
-	model->chgCoeff(cardConstr,lambda,1.0);
-
-	//Add column (Synch constraints)
+	//Iterate through route arcs and create variables
+	int contVar = 0;
 	Edge *myEdge;
-	GRBConstr convConstr;
-	vector<Edge*>::iterator eit = route->edges.begin();
-	while(eit != route->edges.end()){
-		myEdge = (*eit);
+	vector<Edge*>::iterator itEdge = route->edges.begin();
+	while(itEdge != route->edges.end()){
+		myEdge = (*itEdge);
+		s = myEdge->getStartJob();
+		d = myEdge->getEndJob();
+		t = myEdge->getTime();
 
-		if(myEdge->getStartJob() != 0){;
+		if(s == d){ //waiting arc
+			//create w variable
+			v.reset();
+			v.setType(V_W);
+			v.setStartJob(s);
+			v.setTime(t);
+			v.setEquipmentTipe(eqType);
 
-			//synchronization constraints
-			c2.reset();
-			c2.setType(C_SYNCH);
-			c2.setStartJob(myEdge->getStartJob());
-			c2.setTime(myEdge->getTime());
-			c2.setEquipmentType(eqType);
+			if(vHash.find(v) == vHash.end()){
+				vHash[v] = true;
+				model->addVar(0.0,1.0,0.0,GRB_CONTINUOUS,v.toString());
+				contVar++;
+			}
+		}else{ //transition arc
+			//create x variable
+			v.reset();
+			v.setType(V_X);
+			v.setStartJob(s);
+			v.setEndJob(d);
+			v.setTime(t);
+			v.setEquipmentTipe(eqType);
 
-			if(cHash.find(c2) == cHash.end()){
-				std::cout << "Adding Column " << v.toString() << ": synch constraint didn't exist." << std::endl;
-				return false;
+			if(vHash.find(v) == vHash.end()){
+				vHash[v] = true;
+				model->addVar(0.0,1.0,myEdge->getCost(),GRB_CONTINUOUS,v.toString());
+				contVar++;
+			}
+		}	
+		itEdge++;
+	}	
+
+	//if(contVar == 0) goto error;
+
+	model->update();
+
+	////Create rows
+	//itEdge = route->edges.begin();
+	//while(itEdge != route->edges.end()){
+	//	myEdge = (*itEdge);
+	//	s = myEdge->getStartJob();
+	//	d = myEdge->getEndJob();
+	//	t = myEdge->getTime();
+
+	//	if(s!= 0){
+	//		c.reset();
+	//		c.setType(C_OVF_FLOW);
+	//		c.setStartJob(s);
+	//		c.setTime(t);
+	//		c.setEquipmentType(eqType);
+
+	//		if(cHash.find(c) == cHash.end()){
+	//			GRBLinExpr expr = 0;
+	//			cHash[c] = true;
+	//			model->addConstr(expr, GRB_EQUAL, 0.0, c.toString());
+	//		}
+	//	}
+	//	itEdge++;
+	//}
+	//model->update();
+	//model->write("Test.lp");
+
+	//Add new variables to constraints
+	//x vars
+	itEdge = route->edges.begin();
+	while(itEdge != route->edges.end()){
+		myEdge = (*itEdge);
+		s = myEdge->getStartJob();
+		d = myEdge->getEndJob();
+		t = myEdge->getTime();
+		a = myEdge->getArriveTime();
+
+		if(s != d){
+			//Get Variable
+			v.reset();
+			v.setType(V_X);
+			v.setStartJob(s);
+			v.setEndJob(d);
+			v.setTime(t);
+			v.setEquipmentTipe(eqType);
+
+			if(vHash.find(v) == vHash.end()) goto error;
+
+			var = model->getVarByName(v.toString());
+
+			//Synchronization constraints
+			if(s != 0){
+				c.reset();
+				c.setType(C_SYNCH);
+				c.setStartJob(s);
+				c.setTime(t);
+				c.setEquipmentType(eqType);
+
+				if(cHash.find(c) == cHash.end()) goto error;
+
+				cons = model->getConstrByName(c.toString());
+				model->chgCoeff(cons,var,1.0);
 			}
 
-			convConstr = model->getConstrByName(c2.toString());
-			model->chgCoeff(convConstr, lambda, 1.0);
+			//Flow init constraints
+			if(s == 0 && t == 0){
+				c.reset();
+				c.setType(C_OVF_FLOW_INIT);
+				c.setEquipmentType(eqType);
+
+				if(cHash.find(c) == cHash.end()) goto error;
+
+				cons = model->getConstrByName(c.toString());
+				model->chgCoeff(cons,var,1.0);
+			}
+
+			//FLOW SOURCE
+			if(s != 0){
+				c.reset();
+				c.setType(C_OVF_FLOW);
+				c.setStartJob(s);
+				c.setTime(t);
+				c.setEquipmentType(eqType);
+
+				if(cHash.find(c) == cHash.end()) goto error;
+					
+				cons = model->getConstrByName(c.toString());
+				model->chgCoeff(cons,var,1.0);
+			}
+
+			//FLOW DESTINATION
+			if(d != 0){
+				c.reset();
+				c.setType(C_OVF_FLOW);
+				c.setStartJob(d);
+				c.setTime(a);
+				c.setEquipmentType(eqType);
+
+				if(cHash.find(c) == cHash.end()) goto error;
+					
+				cons = model->getConstrByName(c.toString());
+				model->chgCoeff(cons,var,-1.0);
+			}
+		
+		}else{ //wait arc
+			//Get Variable
+			v.reset();
+			v.setType(V_W);
+			v.setStartJob(s);
+			v.setTime(t);
+			v.setEquipmentTipe(eqType);
+
+			if(vHash.find(v) == vHash.end()) goto error;
+
+			var = model->getVarByName(v.toString());	
+
+			//FLOW SOURCE
+			c.reset();
+			c.setType(C_OVF_FLOW);
+			c.setStartJob(s);
+			c.setTime(t);
+			c.setEquipmentType(eqType);
+
+			if(cHash.find(c) == cHash.end()) goto error;
+					
+			cons = model->getConstrByName(c.toString());
+			model->chgCoeff(cons,var,1.0);
+			
+			//FLOW DESTINATION
+			c.reset();
+			c.setType(C_OVF_FLOW);
+			c.setStartJob(s);
+			c.setTime(t + 1);
+			c.setEquipmentType(eqType);
+
+			if(cHash.find(c) == cHash.end()) goto error;
+					
+			cons = model->getConstrByName(c.toString());
+			model->chgCoeff(cons,var,-1.0);
 		}
 
-		eit++;
+		itEdge++;
 	}
 
 	this->routeCount++;
 
 	//Update the model to include new column
 	model->update();
+	//model->write("modelo_CGExtended.lp");
 	return true;
+
+error:
+	cout << "Atention: problem adding route: " << routeNumber << endl;
+	exit(0);
+	return false;
 }
+
+//bool Node::addColumn(Route *route)
+//{	
+//	Variable v;
+//
+//	Constraint c1, c2;
+//	ConstraintHash::iterator cit1, cit2;
+//
+//	int routeNumber = route->getRouteNumber();
+//	int eqType = route->getEquipmentType();
+//
+//	//Create lambda variable
+//	v.reset();
+//	v.setType(V_LAMBDA);
+//	v.setRouteNumber(routeNumber);
+//	v.setEquipmentTipe(eqType);
+//	v.setRoute(route);
+//
+//	if(vHash.find(v) != vHash.end()){
+//		std::cout << "Adding Column " << v.toString() << ": Lambda variable already existed! " << std::endl;
+//		return false;
+//	}
+//
+//	vHash[v] = true;
+//	GRBVar lambda = model->addVar(0.0,1.0,route->getCost(),GRB_CONTINUOUS,v.toString()); //adds to the objective function
+//	model->update(); 
+//
+//	double routeRC = route->getCost();
+//
+//	//Add column (Conv constraints)
+//	c1.reset();
+//	c1.setType(C_CONV);
+//	c1.setEquipmentType(eqType);
+//
+//	if(cHash.find(c1) == cHash.end()){
+//		std::cout << "Adding Column " << v.toString() << ": Cardinality constraint didn't exist." << std::endl;
+//		return false;
+//	}
+//	GRBConstr cardConstr = model->getConstrByName(c1.toString());
+//	model->chgCoeff(cardConstr,lambda,1.0);
+//
+//	//Add column (Synch constraints)
+//	Edge *myEdge;
+//	GRBConstr convConstr;
+//	vector<Edge*>::iterator eit = route->edges.begin();
+//	while(eit != route->edges.end()){
+//		myEdge = (*eit);
+//
+//		if(myEdge->getStartJob() != 0){;
+//
+//			//synchronization constraints
+//			c2.reset();
+//			c2.setType(C_SYNCH);
+//			c2.setStartJob(myEdge->getStartJob());
+//			c2.setTime(myEdge->getTime());
+//			c2.setEquipmentType(eqType);
+//
+//			if(cHash.find(c2) == cHash.end()){
+//				std::cout << "Adding Column " << v.toString() << ": synch constraint didn't exist." << std::endl;
+//				return false;
+//			}
+//
+//			convConstr = model->getConstrByName(c2.toString());
+//			model->chgCoeff(convConstr, lambda, 1.0);
+//		}
+//
+//		eit++;
+//	}
+//
+//	this->routeCount++;
+//
+//	//Update the model to include new column
+//	model->update();
+//	return true;
+//}
 
 int Node::fixVarsByReducedCost(double maxRC)
 {
@@ -458,7 +676,8 @@ double Node::getVarLB(Variable v)
 double Node::getArcReducedCost(int j, int t, int e, double cost)
 {
 	Constraint c;
-	c.setType(C_SYNCH);
+	//c.setType(C_SYNCH);
+	c.setType(C_OVF_FLOW);
 	c.setStartJob(j);
 	c.setTime(t);
 	c.setEquipmentType(e);	
@@ -486,7 +705,8 @@ double Node::getDualVal(int j, int t, int e)
 	double val = 0.0;
 
 	Constraint c;
-	c.setType(C_SYNCH);
+	//c.setType(C_SYNCH);
+	c.setType(C_OVF_FLOW);
 	c.setStartJob(j);
 	c.setTime(t);
 	c.setEquipmentType(e);
@@ -507,7 +727,8 @@ double Node::getDualVal(int j, int t, int e)
 double Node::getRouteUseReducedCost(int eqType)
 {
 	Constraint c;
-	c.setType(C_CONV);
+	//c.setType(C_CONV);
+	c.setType(C_OVF_FLOW_INIT);
 	c.setEquipmentType(eqType);
 
 	ConstraintHash::iterator cit = cHash.find(c);
@@ -538,7 +759,8 @@ double Node::verifyRouteCost(Route *route)
 
 	//Add column (Conv constraints)
 	c1.reset();
-	c1.setType(C_CONV);
+	//c1.setType(C_CONV);
+	c1.setType(C_OVF_FLOW_INIT);
 	c1.setEquipmentType(eqType);
 
 	if(cHash.find(c1) == cHash.end()){
@@ -560,11 +782,12 @@ double Node::verifyRouteCost(Route *route)
 	while(eit != route->edges.end()){
 		myEdge = (*eit);
 
-		if(myEdge->getStartJob() != 0){;
+		if(myEdge->getStartJob() != 0 && myEdge->getStartJob() != myEdge->getEndJob()){;
 
 			//synchronization constraints
 			c2.reset();
-			c2.setType(C_SYNCH);
+			//c2.setType(C_SYNCH);
+			c2.setType(C_OVF_FLOW);
 			c2.setStartJob(myEdge->getStartJob());
 			c2.setTime(myEdge->getTime());
 			c2.setEquipmentType(eqType);
@@ -630,7 +853,7 @@ void Node::printSolution()
 
 	for(; vit != eit; vit++){
 		v = vit->first;
-		//if(v.getType() != V_LAMBDA) continue;
+		//if(v.getType() != V_Y) continue;
 		if(v.getValue() > 0.00001)
 			cout << v.toString() << " = " << v.getValue() << endl;
 	}

@@ -105,6 +105,7 @@ void ProblemData::readData(const std::string & inputFileName)
 	std::vector<std::vector<double>> locDistances(numLocations,std::vector<double>(numLocations, 0.0));
 	Location *origLocPtr, *destLocPtr;
 	double maxLocDistance = 0;
+	minDistance = 1e13;
 	for (int origId = 0; origId < numLocations - 1; origId++)
 	{
 		for (int destId = origId + 1; destId < numLocations; destId++)
@@ -118,6 +119,9 @@ void ProblemData::readData(const std::string & inputFileName)
 			locDistances[origId][destId] = locDistances[destId][origId] = distance;
 			if (distance > maxLocDistance)
 				maxLocDistance = distance;
+
+			if(distance < minDistance)
+				minDistance = distance;
 		}
 	}
 
@@ -164,11 +168,11 @@ void ProblemData::readData(const std::string & inputFileName)
 	
 }
 
-void ProblemData::addEdge(int j, int i, int t)
+void ProblemData::addEdge(int j, int i, int t, int a, double c)
 {
 	//Verify if edge already exist
 	if(edges[j][i][t] == nullptr)
-		edges[j][i][t] = new Edge(j,i,t);
+		edges[j][i][t] = new Edge(j,i,t,a,c);
 }
 
 Edge* ProblemData::getEdge(int j, int i, int t)

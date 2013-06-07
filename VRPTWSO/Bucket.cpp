@@ -133,12 +133,17 @@ void QRouteNoLoopBucket::evaluate(set<Label*,LabelComparator> oLabels, double rC
 	for(; it != oLabels.end(); it++){
 		Label *pLabel = (*it);
 		Label *predecessor = pLabel->getPredecessor();
+
 		//Avoid Loop
 		if(job != 0){
 			if(predecessor != nullptr && predecessor->getJob() == job) continue;
 		}
+
 		//No Loop at this point 		
 		myLabel->setCost(pLabel->getCost() + rCost);
+		//myLabel->vertexSet = pLabel->vertexSet;
+
+		myLabel->setTimePredecessor(pLabel);
 		if(pLabel->getJob() != job)
 			myLabel->setPredecessor(pLabel);
 		else
@@ -148,12 +153,35 @@ void QRouteNoLoopBucket::evaluate(set<Label*,LabelComparator> oLabels, double rC
 		break;
 	}
 
-	//Add the route
+	////Proper Dominance Test
+	////verificar se o label é dominado por algum que ja esteja no bucket
+	//set<Label*,LabelComparator>::iterator itLabel = labels.begin();
+	//while(itLabel != labels.end() && (*itLabel)->getCost() <= myLabel->getCost()){
+	//	if(isContained(*itLabel, myLabel)){
+	//		delete myLabel;
+	//		return;
+	//	}
+	//	itLabel++;
+	//}
+
+	//Add the label
 	pair<set<Label*,LabelComparator>::iterator,bool> success;
 	success = labels.insert(myLabel);
 	if(success.second == false){
 		delete myLabel;
 	}
+
+	//labels.insert(itLabel, myLabel);
+
+	////Verificar se o label domina a outro que já esteja no bucket
+	//while(itLabel != labels.end()){
+	//	if(isContained(myLabel, *itLabel)){
+	//		delete *itLabel;
+	//		itLabel = labels.erase(itLabel);
+	//	}else{
+	//		itLabel++;
+	//	}
+	//}
 
 	//Mantain the label structure of propper size
 	if(labels.size() > maxSize){
@@ -221,3 +249,5 @@ Label* QRouteNoLoopBucket::getBestLabel()
 		return *labels.begin();
 	return nullptr;
 }
+
+

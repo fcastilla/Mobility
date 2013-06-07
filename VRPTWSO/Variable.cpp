@@ -136,7 +136,7 @@ string Variable::toString() const
 			str << "FAUX_" << eqType;
 			break;
 		case(V_BAUX):
-			str << "BAUX_" << sJob;
+			str << "BAUX_" << sJob << "," << time << "," << eqType;
 			break;
 		default:
 			str << "UNDEFINED";

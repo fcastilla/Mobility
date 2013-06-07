@@ -38,7 +38,7 @@ SubproblemSolver::SubproblemSolver(ProblemData *d, SubproblemType m) : data(d), 
 					if(j==0 && t == data->horizonLength)
 						fMatrix[j][t] = new QRouteNoLoopBucket(parameters->getMaxRoutes());
 					else
-						fMatrix[j][t] = new QRouteNoLoopBucket(2);
+						fMatrix[j][t] = new QRouteNoLoopBucket(parameters->getMaxRoutes());
 					break;
 			}
 
@@ -207,9 +207,9 @@ void SubproblemSolver::solve(Node *node, int eqType, int maxRoutes)
 		if(myRoute->getReducedCost() >= -parameters->getEpsilon()) break; //labels are ordered by reduced cost.
 
 		double cost = 0.0;
-		Label *previousLabel = currentLabel->getPredecessor();
+		Label *previousLabel = currentLabel->getTimePredecessor();
 		while(currentLabel != nullptr){
-			if(currentLabel->getJob() == 0 || currentLabel->getJob() != previousLabel->getJob()){ //not waiting
+			//if(currentLabel->getJob() == 0 || currentLabel->getJob() != previousLabel->getJob()){ //not waiting
 				/*cout << endl <<  "(" << currentLabel->getJob() << "," << currentLabel->getTime() << ")";
 				cout << " Valor do Label: " << setw(8) << currentLabel->getCost(); 
 				if(currentLabel->getTime() != 230){
@@ -220,13 +220,12 @@ void SubproblemSolver::solve(Node *node, int eqType, int maxRoutes)
 
 				if(previousLabel != nullptr){
 					cost += e->getNotRoundedTransitionTime(previousLabel->getJob(),currentLabel->getJob());
-					//myRoute->edges.push_back(new Edge(previousLabel->getJob(),currentLabel->getJob(), previousLabel->getTime()));
 					myRoute->edges.push_back(data->getEdge(previousLabel->getJob(), currentLabel->getJob(), previousLabel->getTime()));
 				}
-			}
+			//}
 			currentLabel = previousLabel;
 			if(previousLabel != nullptr)
-				previousLabel = currentLabel->getPredecessor();		
+				previousLabel = currentLabel->getTimePredecessor();		
 		}
 		myRoute->setCost(cost);
 
