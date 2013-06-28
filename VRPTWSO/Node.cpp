@@ -9,12 +9,10 @@
 #include <algorithm>
 #include <vector>
 
-Node::Node(int c, int e) : Zlp(1e13), nodeId(-1), routeCount(0), treeLevel(0)
+Node::Node(int num) : Zlp(1e13), nodeId(-1), routeCount(0), treeLevel(0), numDuals(num)
 {
 	parameters = GlobalParameters::getInstance();
-	solution = nullptr;
-	cDual = c;
-	eDual = e;
+	solution = nullptr;	
 	initializePi();
 }
 
@@ -24,8 +22,7 @@ Node::Node(const Node &other) : vHash(other.vHash), cHash(other.cHash), Zlp(1e13
 	model = new GRBModel(*other.model);
 	parameters = GlobalParameters::getInstance();
 	solution = nullptr;
-	cDual = other.cDual;
-	eDual = other.eDual;
+	numDuals = other.getNumDuals();
 	initializePi();
 }
 
@@ -45,72 +42,72 @@ int Node::solve()
 		return solStatus;
 
 	Zlp = model->get(GRB_DoubleAttr_ObjVal);
+	getDualMultipliers();
+	//calculateAlphaPi();
 	updateVariables(solStatus);
-	if(parameters->useDualStabilization() && model->get(GRB_IntAttr_IsMIP) == 0){
-		getCurrentPi();
-		calculateAlphaPi();
-	}
 	return solStatus;
 }
 
 void Node::initializePi()
 {
-	alpha = 0.05;
+	defaultAlpha = 0.7;
+	validAlpha = defaultAlpha;
+	alpha = (parameters->useDualStabilization())? validAlpha : 1;
 
-	alphaPi_c = valarray<double>(cDual);
-	feasiblePi_c = valarray<double>(cDual);
-	currentPi_c = valarray<double>(eDual);
-
-	alphaPi_e = valarray<double>(eDual);
-	currentPi_e = valarray<double>(eDual);
-	feasiblePi_e = valarray<double>(eDual);
+	alphaPi = valarray<double>(numDuals);
+	feasiblePi = valarray<double>(numDuals);
+	currentPi = valarray<double>(numDuals);
 }
 
-void Node::getCurrentPi()
+void Node::toggleAlpha()
 {
-	double pi;
+	if(validAlpha == defaultAlpha)
+		validAlpha = 1;
+	else
+		validAlpha = defaultAlpha;
+	
+	cout << endl << "Current alpha value: " << validAlpha;
+}
 
-	GRBConstr myConstr;
-
+void Node::getDualMultipliers()
+{
 	Constraint c;
 	ConstraintHash::iterator cit = cHash.begin();
 
+	double val = 0.0;
 	while(cit != cHash.end()){
 		c = cit->first;
-		if(c.getType() == C_OVF_FLOW_INIT){
-			myConstr = model->getConstrByName(c.toString());			
-			pi = myConstr.get(GRB_DoubleAttr_Pi); 
-			currentPi_c[c.getId()] = pi;
-		}else if(c.getType() == C_SYNCH){			
-			myConstr = model->getConstrByName(c.toString());			
-			pi = myConstr.get(GRB_DoubleAttr_Pi); 
-			currentPi_e[c.getId()] = pi;
+		val = 0.0;
+		if(c.getType() == C_SYNCH || c.getType() == C_OVF_FLOW || c.getType() == C_OVF_FLOW_INIT){
+			GRBConstr myConstr = model->getConstrByName(c.toString());
+			val = myConstr.get(GRB_DoubleAttr_Pi);
+			//currentPi[c.getId()] = val;
+			alphaPi[c.getId()] = val;
 		}
 		cit++;
 	}
 }
 
-void Node::calculateAlphaPi()
-{
+void Node::calculateAlphaPi(){
 	double alphaComp = 1 - alpha;
-
-	alphaPi_c = (alphaComp * feasiblePi_c) + (alpha * currentPi_c);
-	alphaPi_e = (alphaComp * feasiblePi_e) + (alpha * currentPi_e);
+	
+	if(parameters->useDualStabilization())
+		alphaPi = (alphaComp * feasiblePi) + (alpha * currentPi);
+	else
+		alphaPi = currentPi;
 }
 
 void Node::updatePi()
 {
-	alphaPi_c = feasiblePi_c;
-	alphaPi_e = feasiblePi_e;
+	feasiblePi = alphaPi;
 }
 
 double Node::getMaxPiDifference()
 {
 	double maxDiff;
-	valarray<double> diff1 = abs(feasiblePi_e - currentPi_e);
-	valarray<double> diff2 = abs(feasiblePi_c - currentPi_c);
+	valarray<double> diff1 = abs(feasiblePi - currentPi);
 
-	maxDiff = max(diff1.max(),diff2.max());
+	maxDiff = diff1.max();
 
 	return maxDiff;
 }
@@ -226,7 +223,7 @@ const Variable Node::getMostFractional()
 
 bool Node::addBranchConstraint(Variable v, double rhs)
 {
-	if(v.getType() == V_Y){
+	if(v.getType() == V_Y || v.getType() == V_X){
 		if(vHash.find(v) != vHash.end()){
 			GRBVar var = model->getVarByName(v.toString());
 			GRBLinExpr expr = 0;
@@ -236,27 +233,6 @@ bool Node::addBranchConstraint(Variable v, double rhs)
 			model->update();
 			return true;
 		}
-	}else if(v.getType() == V_X){
-		GRBVar var;
-		GRBLinExpr expr = 0;
-		//Iterate through lambdas and pick the ones which route pass through x
-		Variable lambda;
-		VariableHash::iterator vit = vHash.begin();
-		for(; vit != vHash.end(); vit++){
-			if(vit->first.getType() == V_LAMBDA){
-				lambda = vit->first;
-				if(lambda.getEquipmentType() != v.getEquipmentType()) continue; //both vars must be of the same equipment type.
-				if(lambda.getRoute()->findArc(v.getStartJob(),v.getEndJob(),v.getTime())){
-					var = model->getVarByName(lambda.toString());
-					expr += var;
-				}					
-			}
-		}
-		model->addConstr(expr == rhs, "Branch_" + v.toString());
-		model->update();
-		return true;
-	}else if(v.getType() == V_ERROR){
-		return false;
 	}
 	
 	return false;
@@ -310,8 +286,6 @@ bool Node::addColumn(Route *route)
 	int eqType = route->getEquipmentType();
 	int s,d,t,a;
 
-	//cout << "Adding route " << routeNumber << endl;
-	//model->write("Test.lp");
 	//Iterate through route arcs and create variables
 	int contVar = 0;
 	Edge *myEdge;
@@ -322,20 +296,7 @@ bool Node::addColumn(Route *route)
 		d = myEdge->getEndJob();
 		t = myEdge->getTime();
 
-		if(s == d){ //waiting arc
-			//create w variable
-			v.reset();
-			v.setType(V_W);
-			v.setStartJob(s);
-			v.setTime(t);
-			v.setEquipmentTipe(eqType);
-
-			if(vHash.find(v) == vHash.end()){
-				vHash[v] = true;
-				model->addVar(0.0,1.0,0.0,GRB_CONTINUOUS,v.toString());
-				contVar++;
-			}
-		}else{ //transition arc
+		if(s != d){ //transition arc
 			//create x variable
 			v.reset();
 			v.setType(V_X);
@@ -344,50 +305,20 @@ bool Node::addColumn(Route *route)
 			v.setTime(t);
 			v.setEquipmentTipe(eqType);
 
+			/*if(vHash.find(v) != vHash.end()){
+				model->getVarByName(v.toString()).set(GRB_DoubleAttr_UB, GRB_INFINITY);
+			}*/
+
 			if(vHash.find(v) == vHash.end()){
 				vHash[v] = true;
-				model->addVar(0.0,1.0,myEdge->getCost(),GRB_CONTINUOUS,v.toString());
+				model->addVar(0.0,GRB_INFINITY,myEdge->getCost(),GRB_CONTINUOUS,v.toString());
 				contVar++;
 			}
 		}	
 		itEdge++;
 	}	
 
-	if(contVar == 0){
-		cout << endl << "All variables already existed.";
-		cout << endl << route->toString() << endl;
-		verifyRouteCost(route);
-		getchar();
-		goto error;
-	}
-
 	model->update();
-
-	////Create rows
-	//itEdge = route->edges.begin();
-	//while(itEdge != route->edges.end()){
-	//	myEdge = (*itEdge);
-	//	s = myEdge->getStartJob();
-	//	d = myEdge->getEndJob();
-	//	t = myEdge->getTime();
-
-	//	if(s!= 0){
-	//		c.reset();
-	//		c.setType(C_OVF_FLOW);
-	//		c.setStartJob(s);
-	//		c.setTime(t);
-	//		c.setEquipmentType(eqType);
-
-	//		if(cHash.find(c) == cHash.end()){
-	//			GRBLinExpr expr = 0;
-	//			cHash[c] = true;
-	//			model->addConstr(expr, GRB_EQUAL, 0.0, c.toString());
-	//		}
-	//	}
-	//	itEdge++;
-	//}
-	//model->update();
-	//model->write("Test.lp");
 
 	//Add new variables to constraints
 	//x vars
@@ -466,51 +397,17 @@ bool Node::addColumn(Route *route)
 				model->chgCoeff(cons,var,-1.0);
 			}
 		
-		}else{ //wait arc
-			//Get Variable
-			v.reset();
-			v.setType(V_W);
-			v.setStartJob(s);
-			v.setTime(t);
-			v.setEquipmentTipe(eqType);
-
-			if(vHash.find(v) == vHash.end()) goto error;
-
-			var = model->getVarByName(v.toString());	
-
-			//FLOW SOURCE
-			c.reset();
-			c.setType(C_OVF_FLOW);
-			c.setStartJob(s);
-			c.setTime(t);
-			c.setEquipmentType(eqType);
-
-			if(cHash.find(c) == cHash.end()) goto error;
-					
-			cons = model->getConstrByName(c.toString());
-			model->chgCoeff(cons,var,1.0);
-			
-			//FLOW DESTINATION
-			c.reset();
-			c.setType(C_OVF_FLOW);
-			c.setStartJob(s);
-			c.setTime(t + 1);
-			c.setEquipmentType(eqType);
-
-			if(cHash.find(c) == cHash.end()) goto error;
-					
-			cons = model->getConstrByName(c.toString());
-			model->chgCoeff(cons,var,-1.0);
 		}
 
 		itEdge++;
 	}
 
-	this->routeCount++;
+	//this->routeCount++;
 
 	//Update the model to include new column
 	model->update();
 	//model->write("modelo_CGExtended.lp");
+	//getchar();
 	return true;
 
 error:
@@ -518,81 +415,6 @@ error:
 	exit(0);
 	return false;
 }
-
-//bool Node::addColumn(Route *route)
-//{	
-//	Variable v;
-//
-//	Constraint c1, c2;
-//	ConstraintHash::iterator cit1, cit2;
-//
-//	int routeNumber = route->getRouteNumber();
-//	int eqType = route->getEquipmentType();
-//
-//	//Create lambda variable
-//	v.reset();
-//	v.setType(V_LAMBDA);
-//	v.setRouteNumber(routeNumber);
-//	v.setEquipmentTipe(eqType);
-//	v.setRoute(route);
-//
-//	if(vHash.find(v) != vHash.end()){
-//		std::cout << "Adding Column " << v.toString() << ": Lambda variable already existed! " << std::endl;
-//		return false;
-//	}
-//
-//	vHash[v] = true;
-//	GRBVar lambda = model->addVar(0.0,1.0,route->getCost(),GRB_CONTINUOUS,v.toString()); //adds to the objective function
-//	model->update(); 
-//
-//	double routeRC = route->getCost();
-//
-//	//Add column (Conv constraints)
-//	c1.reset();
-//	c1.setType(C_CONV);
-//	c1.setEquipmentType(eqType);
-//
-//	if(cHash.find(c1) == cHash.end()){
-//		std::cout << "Adding Column " << v.toString() << ": Cardinality constraint didn't exist." << std::endl;
-//		return false;
-//	}
-//	GRBConstr cardConstr = model->getConstrByName(c1.toString());
-//	model->chgCoeff(cardConstr,lambda,1.0);
-//
-//	//Add column (Synch constraints)
-//	Edge *myEdge;
-//	GRBConstr convConstr;
-//	vector<Edge*>::iterator eit = route->edges.begin();
-//	while(eit != route->edges.end()){
-//		myEdge = (*eit);
-//
-//		if(myEdge->getStartJob() != 0){;
-//
-//			//synchronization constraints
-//			c2.reset();
-//			c2.setType(C_SYNCH);
-//			c2.setStartJob(myEdge->getStartJob());
-//			c2.setTime(myEdge->getTime());
-//			c2.setEquipmentType(eqType);
-//
-//			if(cHash.find(c2) == cHash.end()){
-//				std::cout << "Adding Column " << v.toString() << ": synch constraint didn't exist." << std::endl;
-//				return false;
-//			}
-//
-//			convConstr = model->getConstrByName(c2.toString());
-//			model->chgCoeff(convConstr, lambda, 1.0);
-//		}
-//
-//		eit++;
-//	}
-//
-//	this->routeCount++;
-//
-//	//Update the model to include new column
-//	model->update();
-//	return true;
-//}
 
 int Node::fixVarsByReducedCost(double maxRC)
 {
@@ -604,15 +426,11 @@ int Node::fixVarsByReducedCost(double maxRC)
 	VariableHash::iterator vit = vHash.begin();
 
 	while(vit != vHash.end()){
-		if(vit->first.getType() == V_Y){
-			if(vit->first.getReducedCost() > maxRC){
-				var = model->getVarByName(vit->first.toString());
-				model->remove(var);
-				vHash.erase(vit++);
-				deletedVars++;
-			}else{
-				vit++;
-			}
+		if(vit->first.getReducedCost() > maxRC){
+			var = model->getVarByName(vit->first.toString());
+			model->remove(var);
+			vHash.erase(vit++);
+			deletedVars++;
 		}else{
 			vit++;
 		}
@@ -667,152 +485,86 @@ int Node::cleanNode(int maxRoutes)
 	return contDel;
 }
 
-double Node::getVarLB(Variable v)
-{
-	GRBVar myVar;
-	VariableHash::iterator vit = vHash.find(v);
-	if(vit != vHash.end()){
-		myVar = model->getVarByName(v.toString());
-		return myVar.get(GRB_DoubleAttr_LB);
-	}
-
-	return -1;
-}
-
 double Node::getArcReducedCost(int s, int d, int sTime, int dTime, int e, double cost)
 {
 	Constraint cSynch, cFlowIn, cFlowOut, cDepot;
 	
-	double dualVal = 0.0;
+	double rc = cost;
 	if(s != 0){
-		if(s != d){
-			//Synch
-			cSynch.reset();
-			cSynch.setType(C_SYNCH);
-			cSynch.setStartJob(s);
-			cSynch.setTime(sTime);
-			cSynch.setEquipmentType(e);
+		//Synch
+		cSynch.reset();
+		cSynch.setType(C_SYNCH);
+		cSynch.setStartJob(s);
+		cSynch.setTime(sTime);
+		cSynch.setEquipmentType(e);
 
-			ConstraintHash::iterator citSynch = cHash.find(cSynch);
-			if(citSynch != cHash.end()){
-				if(parameters->useDualStabilization()){
-					dualVal = alphaPi_e[citSynch->first.getId()];
-				}else{
-					GRBConstr mySynchConstr = model->getConstrByName(cSynch.toString());
-					dualVal += mySynchConstr.get(GRB_DoubleAttr_Pi);
-				}
-			}
-
-			//FlowOut 
-			cFlowOut.reset();		
-			cFlowOut.setType(C_OVF_FLOW);
-			cFlowOut.setStartJob(s);
-			cFlowOut.setTime(sTime);
-			cFlowOut.setEquipmentType(e);
-
-			ConstraintHash::iterator citFlowOut = cHash.find(cFlowOut);
-
-			if(citFlowOut != cHash.end()){
-				if(parameters->useDualStabilization()){
-					dualVal += alphaPi_e[citFlowOut->first.getId()];
-				}else{
-					GRBConstr myFlowOutConstr = model->getConstrByName(cFlowOut.toString());
-
-					dualVal += myFlowOutConstr.get(GRB_DoubleAttr_Pi);
-				}
-			}
-
-			//Flow In
-			if(d != 0){ //not for depot ending
-				cFlowIn.reset();		
-				cFlowIn.setType(C_OVF_FLOW);
-				cFlowIn.setStartJob(d);
-				cFlowIn.setTime(dTime);
-				cFlowIn.setEquipmentType(e);
-
-				ConstraintHash::iterator citFlowIn = cHash.find(cFlowIn);
-
-				if(citFlowIn != cHash.end()){
-					if(parameters->useDualStabilization()){
-						dualVal -= alphaPi_e[citFlowIn->first.getId()];
-					}else{
-						GRBConstr myFlowInConstr = model->getConstrByName(cFlowIn.toString());
-						dualVal -= myFlowInConstr.get(GRB_DoubleAttr_Pi);
-					}
-				}	
-			}
-			
-		}else{ //w variable
-			//FlowOut 
-			cFlowOut.reset();		
-			cFlowOut.setType(C_OVF_FLOW);
-			cFlowOut.setStartJob(s);
-			cFlowOut.setTime(sTime);
-			cFlowOut.setEquipmentType(e);
-
-			//Flow In
-			cFlowIn.reset();		
-			cFlowIn.setType(C_OVF_FLOW);
-			cFlowIn.setStartJob(d);
-			cFlowIn.setTime(dTime);
-			cFlowIn.setEquipmentType(e);
-
-			ConstraintHash::iterator citFlowOut = cHash.find(cFlowOut);
-			ConstraintHash::iterator citFlowIn = cHash.find(cFlowIn);
-
-			if(citFlowOut != cHash.end() && citFlowIn != cHash.end()){
-				if(parameters->useDualStabilization()){
-					dualVal += alphaPi_e[citFlowOut->first.getId()];
-					dualVal -= alphaPi_e[citFlowIn->first.getId()];
-				}else{
-					GRBConstr myFlowOutConstr = model->getConstrByName(cFlowOut.toString());
-					GRBConstr myFlowInConstr = model->getConstrByName(cFlowIn.toString());
-
-					dualVal += myFlowOutConstr.get(GRB_DoubleAttr_Pi);
-					dualVal -= myFlowInConstr.get(GRB_DoubleAttr_Pi);
-				}
-			}
+		ConstraintHash::iterator citSynch = cHash.find(cSynch);
+		if(citSynch != cHash.end()){
+			rc -= alphaPi[citSynch->first.getId()];
 		}
-		
-	}else{		
-		//Out of depot constraint
-		cDepot.reset();
-		cDepot.setType(C_OVF_FLOW_INIT);
-		cDepot.setEquipmentType(e);
 
 		//FlowOut 
 		cFlowOut.reset();		
 		cFlowOut.setType(C_OVF_FLOW);
 		cFlowOut.setStartJob(s);
 		cFlowOut.setTime(sTime);
-		cFlowOut.setEquipmentType(e);		
-		
-		ConstraintHash::iterator citDepot = cHash.find(cFlowOut);
+		cFlowOut.setEquipmentType(e);
+
 		ConstraintHash::iterator citFlowOut = cHash.find(cFlowOut);
 
-		if(citDepot != cHash.end() && citFlowOut != cHash.end()){
-			if(parameters->useDualStabilization()){
-				dualVal = alphaPi_e[citDepot->first.getId()];
-				dualVal += alphaPi_e[citFlowOut->first.getId()];
-			}else{
-				GRBConstr myDepotConstr = model->getConstrByName(cFlowOut.toString());
-				GRBConstr myFlowOutConstr = model->getConstrByName(cFlowOut.toString());
+		if(citFlowOut != cHash.end()){
+			rc -= alphaPi[citFlowOut->first.getId()];
+		}
 
-				dualVal += myDepotConstr.get(GRB_DoubleAttr_Pi);
-				dualVal += myFlowOutConstr.get(GRB_DoubleAttr_Pi);
-			}
+		//Flow In
+		if(d != 0){ //not for depot ending
+			cFlowIn.reset();		
+			cFlowIn.setType(C_OVF_FLOW);
+			cFlowIn.setStartJob(d);
+			cFlowIn.setTime(dTime);
+			cFlowIn.setEquipmentType(e);
+
+			ConstraintHash::iterator citFlowIn = cHash.find(cFlowIn);
+
+			if(citFlowIn != cHash.end()){
+				rc += alphaPi[citFlowIn->first.getId()];
+			}	
+		}		
+	}else{		
+		//Out of depot constraint
+		cDepot.reset();
+		cDepot.setType(C_OVF_FLOW_INIT);
+		cDepot.setEquipmentType(e);
+
+		//FlowIn
+		cFlowIn.reset();		
+		cFlowIn.setType(C_OVF_FLOW);
+		cFlowIn.setStartJob(d);
+		cFlowIn.setTime(dTime);
+		cFlowIn.setEquipmentType(e);
+
+		ConstraintHash::iterator citDepot = cHash.find(cDepot);
+		ConstraintHash::iterator citFlowIn = cHash.find(cFlowIn);
+
+		if(citDepot != cHash.end() && citFlowIn != cHash.end()){
+			rc -= alphaPi[citDepot->first.getId()];
+			rc += alphaPi[citFlowIn->first.getId()];
+			//rc = 0;
 		}
 	}
 	
-	return cost - dualVal;
+	return rc;
 }
 
 double Node::verifyRouteCost(Route *route)
 {
 	Variable v;
 
-	Constraint c1, c2;
-	ConstraintHash::iterator cit1, cit2;
+	Constraint cSynch, cDepot, cFlowOut, cFlowIn;
+	ConstraintHash::iterator citSynch, citDepot, citFlowOut, citFlowIn;
+
+	vector<Edge*>::iterator itEdge;
+	vector<Edge*>::iterator eitEdge;
 
 	int s, d, sTime, dTime, cost;
 
@@ -820,9 +572,10 @@ double Node::verifyRouteCost(Route *route)
 	int eqType = route->getEquipmentType();
 
 	Edge *myEdge;
-	vector<Edge*>::iterator itEdge = route->edges.begin();
-	vector<Edge*>::iterator eitEdge = route->edges.end();
+	itEdge = route->edges.begin();
+	eitEdge = route->edges.end();
 
+	double rc = 0.0;
 	while(itEdge != eitEdge){
 		myEdge = *itEdge;
 		s = myEdge->getStartJob();
@@ -830,18 +583,166 @@ double Node::verifyRouteCost(Route *route)
 		sTime = myEdge->getTime();
 		dTime = myEdge->getArriveTime();
 
-		cout << endl << "Edge(" << s << "," << d << "," << sTime  << ") RC=" << getArcReducedCost(s,d,sTime,dTime,eqType,myEdge->getCost()); 
+		//Flow init constraints
+		cDepot.reset();
+		cDepot.setType(C_OVF_FLOW_INIT);
+		cDepot.setEquipmentType(eqType);
+		
+		citDepot = cHash.find(cDepot);
+
+		//Flow In
+		cFlowIn.reset();
+		cFlowIn.setType(C_OVF_FLOW);
+		cFlowIn.setStartJob(d);
+		cFlowIn.setTime(dTime);
+		cFlowIn.setEquipmentType(eqType);
+
+		citFlowIn = cHash.find(cFlowIn);
+
+		//Synch Constraint
+		cSynch.reset();
+		cSynch.setType(C_SYNCH);
+		cSynch.setStartJob(s);
+		cSynch.setTime(sTime);
+		cSynch.setEquipmentType(eqType);
+
+		citSynch = cHash.find(cSynch);
+
+		//Flow Out
+		cFlowOut.reset();
+		cFlowOut.setType(C_OVF_FLOW);
+		cFlowOut.setStartJob(s);
+		cFlowOut.setTime(sTime);
+		cFlowOut.setEquipmentType(eqType);
+
+		citFlowOut = cHash.find(cFlowOut);
+				
+		rc += myEdge->getCost();
+
+		if(s == d){
+			rc += 0;
+		}else if(s == 0){
+			rc -= alphaPi[citDepot->first.getId()];
+			rc += alphaPi[citFlowIn->first.getId()];
+		}else{
+			rc -= alphaPi[citSynch->first.getId()];
+			rc -= alphaPi[citFlowOut->first.getId()];
+			if(d != 0)
+				rc += alphaPi[citFlowIn->first.getId()];
+		}
 
 		itEdge++;
 	}
-	
-	/*if(route->getReducedCost() - routeRC > parameters->getEpsilon()){
-		cout << "ATENCAO: CUSTOS REDUZIDOS NÃO BATEM" << endl;
-		cout << " Custo reduzido do subproblema: " << route->getReducedCost() << endl;
-		cout << " Custo reduzido verificado da rota: " << routeRC << endl;
-	}*/
+		
+	if(route->getReducedCost() - rc < parameters->getEpsilon()){
+		return true;
+	}
 
-	return true;
+	cout << "WRONG REDUCED COSTS!!!" << endl;
+	cout << endl << endl << "RouteRC: " << route->getReducedCost() << " | Verified RC: " << rc << endl;
+	
+	itEdge = route->edges.begin();
+	eitEdge = route->edges.end();
+	while(itEdge != eitEdge){
+		myEdge = *itEdge;
+		s = myEdge->getStartJob();
+		d = myEdge->getEndJob();
+		sTime = myEdge->getTime();
+		dTime = myEdge->getArriveTime();
+
+		v.reset();
+		v.setType(V_X);
+		v.setStartJob(s);
+		v.setEndJob(d);
+		v.setTime(sTime);
+		v.setEquipmentTipe(eqType);		
+
+		//Flow init constraints
+		cDepot.reset();
+		cDepot.setType(C_OVF_FLOW_INIT);
+		cDepot.setEquipmentType(eqType);
+		
+		citDepot = cHash.find(cDepot);
+
+		//Flow In
+		cFlowIn.reset();
+		cFlowIn.setType(C_OVF_FLOW);
+		cFlowIn.setStartJob(d);
+		cFlowIn.setTime(dTime);
+		cFlowIn.setEquipmentType(eqType);
+
+		citFlowIn = cHash.find(cFlowIn);
+
+		//Synch Constraint
+		cSynch.reset();
+		cSynch.setType(C_SYNCH);
+		cSynch.setStartJob(s);
+		cSynch.setTime(sTime);
+		cSynch.setEquipmentType(eqType);
+
+		citSynch = cHash.find(cSynch);
+
+		//Flow Out
+		cFlowOut.reset();
+		cFlowOut.setType(C_OVF_FLOW);
+		cFlowOut.setStartJob(s);
+		cFlowOut.setTime(sTime);
+		cFlowOut.setEquipmentType(eqType);
+
+		citFlowOut = cHash.find(cFlowOut);
+
+		cout << endl << v.toString();	
+
+		if(vHash.find(v) != vHash.end()){
+			GRBVar myVar = model->getVarByName(v.toString());
+			GRBColumn myCol = model->getCol(myVar);
+
+			int varStat = myVar.get(GRB_IntAttr_VBasis);
+			string varStatus = (varStat == 0)? "Basic" : (varStat == -1)? "Nonnasic at rootLB" : "Nonbasic at UB";
+			cout << " | Status: " << varStatus;
+			cout << " | Coefficients: ";
+
+			for(int i=0; i<myCol.size(); i++){
+				cout << " # " << myCol.getConstr(i).get(GRB_StringAttr_ConstrName) << " = ";
+				cout << myCol.getCoeff(i);
+			}
+		}
+			
+		cout << " | Arc_" << s << "," << d << "," << sTime << "," << eqType << "_RC: " << getArcReducedCost(s,d,sTime,dTime,eqType,myEdge->getCost());			 
+				
+		//Print duals
+		if(s == 0){ //comming from depot
+			cout << " | S_" << s << "_" << d << "=" << myEdge->getCost();
+			cout << " | Dual of " << cDepot.toString() << "=" << alphaPi[citDepot->first.getId()];
+			cout << " | Dual of " << cFlowIn.toString() << "=" << alphaPi[citFlowIn->first.getId()];
+		}else{										
+			cout << " | Dual of " << cSynch.toString() << "=" << alphaPi[citSynch->first.getId()];
+			cout << " | Dual of " << cFlowOut.toString() << "=" << alphaPi[citFlowOut->first.getId()];
+			if(d!=0)
+				cout << " | Dual of " << cFlowIn.toString() << "=" << alphaPi[citFlowIn->first.getId()];
+		}
+		cout << endl << endl << "----------------------------" << endl;				
+		itEdge++;
+	}
+	printSolution();
+	//model->write("RC_error.lp");
+	
+	getchar();
+	return false;
+}
+
+void Node::unrelaxModel()
+{
+	Variable v;
+	VariableHash::iterator vit = vHash.begin();
+
+	while(vit != vHash.end()){
+		v = vit->first;
+		GRBVar var = model->getVarByName(v.toString());
+		var.set(GRB_CharAttr_VType,GRB_INTEGER);
+		vit++;
+	}
+	model->update();
 }
 
 Solution* Node::getSolution()

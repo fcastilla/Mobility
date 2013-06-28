@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
 	data->readData(fileName);
 
 	//Create solver
-	Solver *mySolver = new Solver(data,type);
+	Solver *mySolver = new Solver(data);
 	int result = mySolver->solve();
 	cout << "Status final: " << result << endl;
 	

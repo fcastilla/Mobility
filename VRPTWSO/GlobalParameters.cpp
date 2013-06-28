@@ -6,13 +6,13 @@ GlobalParameters* GlobalParameters::instance = NULL;
 GlobalParameters::GlobalParameters()
 {
 	bigM = 10000;
-	epsilon = 1e-5;
-	maxRoutesPerIteration = 2;
+	epsilon = 1e-8;
+	maxRoutesPerIteration = 10;
 	dualStabilization = false; 
 	printLevel = 0;
-	solveMIP = false;
-	numSolutions = 100;
-	timeLimit = 15000;
+	solveMIP = true;
+	numSolutions = 100000;
+	timeLimit = 10000;
 }
 
 GlobalParameters* GlobalParameters::getInstance()

@@ -11,8 +11,6 @@
 #include <queue>
 
 //#define GUROBI_TEST
-#define CG_EXTENDED
-//#define CG_STANDARD
 
 string itos(int i) {stringstream s; s << i; return s.str(); }
 
@@ -24,22 +22,7 @@ string getFileSeparator(){
 	#endif
 }
 
-string getSpTypeName(int type){
-	switch(type){
-		case QROUTE:
-			return "q-Route";
-			break;
-		case QROUTE_NOLOOP:
-			return "2Cycle";
-			break;
-		default:
-			return "N/A";
-	}
-}
-
-#define METHOD_MIP = 1;
-
-Solver::Solver(ProblemData *d, int type) : data(d), spType(type)
+Solver::Solver(ProblemData *d) : data(d)
 {
 	//Get global parameters
 	parameters = GlobalParameters::getInstance();
@@ -54,9 +37,8 @@ Solver::Solver(ProblemData *d, int type) : data(d), spType(type)
 	//Objective function value of auxiliary variables
 	bigM = parameters->getBigM();
 	
-	//Initialize subproblem solver vector
-	SubproblemType spMethod = static_cast<SubproblemType>(type);
-	spSolver = new SubproblemSolver(data, spMethod);	
+	//Initialize subproblem solver vector;
+	spSolver = new SubproblemSolver(data);	
 
 	//Solutions set
 	solutions = set<Solution*>();
@@ -80,94 +62,63 @@ Solver::~Solver()
 int Solver::solve()
 {
 	int status = GRB_INPROGRESS;
-	eDualVars = 0;
-	cDualVars = 0;
 
 	//Global parameters
-	lb = 1e13;
+	numVars = 0;
+	rootLB = 1e13;
+	rootRoutes = 0;
+	
+	mipLB = 1e13;
 	ZInc = 1e13;
 	gap = 1e13;
+	
 	totalNodes = 0;
-	exploredNodes = 0;
-	routeCounter = 0;
-	maxTreeHeight = 0;
+	totalRoutes = 0;
+
+	//Configure enviroment
+	GRBEnv myEnv = model->getEnv();
+	myEnv.set(GRB_IntParam_Method, GRB_METHOD_DUAL);
 
 	//Build problem graph representation
 	buildProblemNetwork();
-
+		
 	//Build the initial model
 	buildInitialModel();
 
-	//Get a first integer feasible solution (ZInc)
-	GRBEnv myEnv = model->getEnv();
-	myEnv.set(GRB_IntParam_Method, GRB_METHOD_BARRIER);
+#ifdef GUROBI_TEST	
+	model->getEnv().set(GRB_DoubleParam_TimeLimit, parameters->getTimeLimit());
+	model->getEnv().set(GRB_IntParam_SolutionLimit, parameters->getNumSolutions());
+	model->getEnv().set(GRB_DoubleParam_NodeLimit,1);
 
-	
-#ifdef GUROBI_TEST
+	tStart = clock();
+	model->optimize();
+	tEnd = clock();
 
-	//myEnv.set(GRB_DoubleParam_NodeLimit,1);
-	myEnv.set(GRB_DoubleParam_TimeLimit, 300);
-	myEnv.set(GRB_IntParam_Method, 1);
+	rootTime = (double)(tEnd - tStart)/CLOCKS_PER_SEC;
+	rootLB = model->get(GRB_DoubleAttr_ObjBound);
+	rootRoutes = 0;
 
-	Node *tempNode = new Node(cDualVars, eDualVars);
-	tempNode->setModel(model);
-	tempNode->setVHash(vHash);
-	tempNode->setCHash(cHash);
+	if(parameters->solveByMIP()){
+		model->getEnv().set(GRB_DoubleParam_NodeLimit,GRB_INFINITY);
+		model->optimize();
+		tEnd = clock();
+		totalTime = (double)(tEnd - tStart)/CLOCKS_PER_SEC;
 
-	//TESTE GUROBI
-	//model->optimize();
-	tempNode->solve();
-	status = tempNode->getModel()->get(GRB_IntAttr_Status);
-	double objVal = tempNode->getModel()->get(GRB_DoubleAttr_ObjVal);
-	double bound = tempNode->getModel()->get(GRB_DoubleAttr_ObjBound);
-	double expNode = tempNode->getModel()->get(GRB_DoubleAttr_NodeCount);
-	double totalTime = tempNode->getModel()->get(GRB_DoubleAttr_Runtime);
-	double mipGap = tempNode->getModel()->get(GRB_DoubleAttr_MIPGap);
+		mipLB = model->get(GRB_DoubleAttr_ObjBound);
+		ZInc = model->get(GRB_DoubleAttr_ObjVal);
+		gap = model->get(GRB_DoubleAttr_MIPGap);
+		totalNodes = model->get(GRB_DoubleAttr_NodeCount);
+		numVars = model->get(GRB_IntAttr_NumVars);
+	}	
+	string statFileName = "statistics_gurobi.csv";
+#else
+	//Additional enviroment settings	
+	model->getEnv().set(GRB_IntParam_OutputFlag,0);
 
-	tempNode->printSolution();
-
-	std::ifstream myFile("statisticsGurobi.csv");
-	bool isEmpty = myFile.peek() == std::ifstream::traits_type::eof();
-	myFile.close();
-
-	string fileName = data->getFileName();
-	unsigned pos = 0;
-
-	while(pos = fileName.find(getFileSeparator()) != std::string::npos){
-		fileName.erase(0, pos);
-	}
-
-	//Save statistics
-	ofstream statFile;
-	statFile.open("statisticsGurobi.csv", ios::out | ios::app);
-
-	//Header
-	if(isEmpty)
-		statFile << "File_Name,LB,UB,Gap,Nodes,Time" << endl;
-	else
-		statFile << endl;
-
-	statFile << fileName << ",";
-	statFile << bound << ","; 
-	statFile << objVal << ","; 
-	statFile << mipGap << ",";
-	statFile << expNode << ",";
-	statFile << totalTime;
-
-	//getchar();
-
-#endif
-#ifdef CG_EXTENDED
-	myEnv.set(GRB_IntParam_MIPFocus, 1);
-	//myEnv.set(GRB_DoubleParam_TimeLimit, 1200);
-
-	//Disable gurobi output
-	myEnv.set(GRB_IntParam_OutputFlag,0);	
-	myEnv.set(GRB_DoubleParam_TimeLimit, GRB_INFINITY);
-
+	//Adapt model
 	buildDWMForExtendedFormulations();
 
-	Node *rootNode = new Node(cDualVars,eDualVars);
+	Node *rootNode = new Node(numDuals);
 	rootNode->setModel(model);
 	rootNode->setVHash(vHash);
 	rootNode->setCHash(cHash);
@@ -179,14 +130,34 @@ int Solver::solve()
 	vHash.clear();
 	cHash.clear();
 
-	//Solve DWM model by CG
+	//Solve model by CG
 	tStart = clock();
-	if(parameters->solveByMIP()){
-		status = BaP(rootNode);
-	}else{
-		status = solveLPByColumnGeneration(rootNode,0);
-	}
+	status = solveLPByColumnGeneration(rootNode,0);
 	tEnd = clock();
+	rootTime = (double)(tEnd - tStart)/CLOCKS_PER_SEC;
+
+	//Continue solving MIP
+	if(parameters->solveByMIP()){		
+		rootNode->getModel()->getEnv().set(GRB_DoubleParam_TimeLimit, parameters->getTimeLimit());
+		rootNode->getModel()->getEnv().set(GRB_IntParam_SolutionLimit, parameters->getNumSolutions());		
+		rootNode->getModel()->getEnv().set(GRB_IntParam_OutputFlag,1);
+
+		rootNode->unrelaxModel();
+		GRBModel *myModel = rootNode->getModel();
+		myModel->optimize();
+		tEnd = clock();
+		totalTime = (double)(tEnd - tStart)/CLOCKS_PER_SEC;
+
+		mipLB = myModel->get(GRB_DoubleAttr_ObjBound);
+		ZInc = myModel->get(GRB_DoubleAttr_ObjVal);
+		gap = myModel->get(GRB_DoubleAttr_MIPGap);
+		totalNodes = myModel->get(GRB_DoubleAttr_NodeCount);		
+		numVars = myModel->get(GRB_IntAttr_NumVars);
+	}
+
+	string statFileName = "statistics_cg.csv";
+	
+#endif
 
 	////--------------------------------------
 	////SAVE OUTPUT
@@ -197,200 +168,83 @@ int Solver::solve()
 	while(pos = fileName.find(getFileSeparator()) != std::string::npos){
 		fileName.erase(0, pos);
 	}
-
-	//--------------------------------------
-	//SOLUTION FILE
-	//--------------------------------------
-	ofstream solFile;
-	solFile.open("solutions.txt", ios::out | ios::app);
-
-	//Begin of new solution
-	solFile << setw(80) << setfill('-') << "-" << setfill (' ') << endl;
-
-	//Instance name	
-	solFile << "#Instance: " << endl << fileName << endl;
-
-	Solution *mySolution;
-	if(parameters->solveByMIP()){		
-		if(solutions.size() > 0){
-			mySolution = (*solutions.begin());
-			solFile << *mySolution;
-		}else{
-			solFile << "No solution found. Final status was: " << status << endl;
-		}
-	}else{
-		mySolution = rootNode->getSolution();
-		solFile << *mySolution;
-	}
 	
-	//End of new solution
-	solFile << setw(80) << setfill('-') << "-" << setfill (' ') << endl;
-	solFile.close();
-	//--------------------------------------
-
 	//--------------------------------------
 	//STATISTICS FILE	
 	//--------------------------------------
 	//Verify if statistics file is empty
-	std::ifstream myFile("statistics.csv");
+	std::ifstream myFile(statFileName);
 	bool isEmpty = myFile.peek() == std::ifstream::traits_type::eof();
 	myFile.close();
 
 	//Save statistics
 	ofstream statFile;
-	statFile.open("statistics.csv", ios::out | ios::app);
+	statFile.open(statFileName, ios::out | ios::app);
 
 	//Header
 	if(isEmpty)
-		statFile << "File_Name,LB,UB,Gap,SP_Method,Exp_Nodes,Max_Tree_Height,Total_Routes,Integer,Time" << endl;
+		statFile << "File_Name,Solution_Mode,Root_LB,Root_Routes,Root_Time,MIP_LB,MIP_UB,MIP_GAP,Nodes,Variables,Integer,Total_Time" << endl;
 	else
 		statFile << endl;
 
+	//name
 	statFile << fileName << ","; //file Name
-	statFile << lb << ",";
-		
+
+	//solve mode
+	if(parameters->solveByMIP())
+		statFile << "MIP" << ",";
+	else
+		statFile << "LP" << ",";
+
+	//root LB
+	statFile << rootLB << ",";
+	
+	//root routes	
+	statFile << rootRoutes << ",";
+
+	//Root time
+	statFile << rootTime << ",";
+
+	//MIP LB
+	if(mipLB > -1e13)
+		statFile << mipLB << ",";
+	else
+		statFile << ",";
+
+	//MIP UB
 	if(ZInc < 1e13)
 		statFile << ZInc << ",";
 	else
 		statFile << ",";
 
+	//MIP GAP
 	if(gap < 1e13)
-		statFile << gap << "%,";
+		statFile << gap << ",";
 	else
 		statFile << ",";
 
-	statFile << getSpTypeName(spType) << ",";
-	statFile << exploredNodes << ",";
-	statFile << maxTreeHeight << ",";
-	statFile << routeCounter << ",";
-	if(isInt){
-		statFile << "Yes,";
-	}else{
-		statFile << "No,";
-	}
-	statFile << (double)(tEnd - tStart)/CLOCKS_PER_SEC << "s" ; //Time
+	//Nodes
+	statFile << totalNodes << ",";
+
+	//Num Variables
+	statFile << numVars << ",";
+
+	//Integer
+	if(isInt)
+		statFile << "yes" << ",";
+	else
+		statFile << "no" << ",";
+
+	//Time
+	if(totalTime > rootTime)
+		statFile << totalTime;
+	else
+		statFile << rootTime;
+
 
 	statFile.close();
 	//--------------------------------------
-
-#endif
-#ifdef CG_STANDARD
-	myEnv.set(GRB_IntParam_MIPFocus, 1);
-	//myEnv.set(GRB_DoubleParam_TimeLimit, 1200);
-
-	//Disable gurobi output
-	myEnv.set(GRB_IntParam_OutputFlag,0);	
-	myEnv.set(GRB_DoubleParam_TimeLimit, GRB_INFINITY);
-
-	//Build DWM model
-	buildDWM();
 	
-	Node *rootNode = new Node(cDualVars,eDualVars);
-	rootNode->setModel(model);
-	rootNode->setVHash(vHash);
-	rootNode->setCHash(cHash);
-	rootNode->setNodeId(0);
-	rootNode->setTreeLevel(0);
-
-	//At this point, root node has its own copy of the model
-	delete model;
-	vHash.clear();
-	cHash.clear();
-
-	//Solve DWM model by CG
-	tStart = clock();
-	if(parameters->solveByMIP()){
-		status = BaP(rootNode);
-	}else{
-		status = solveLPByColumnGeneration(rootNode,0);
-	}
-	tEnd = clock();
-
-	////--------------------------------------
-	////SAVE OUTPUT
-	////--------------------------------------	
-	string fileName = data->getFileName();
-	unsigned pos = 0;
-
-	while(pos = fileName.find(getFileSeparator()) != std::string::npos){
-		fileName.erase(0, pos);
-	}
-
-	//--------------------------------------
-	//SOLUTION FILE
-	//--------------------------------------
-	ofstream solFile;
-	solFile.open("solutions.txt", ios::out | ios::app);
-
-	//Begin of new solution
-	solFile << setw(80) << setfill('-') << "-" << setfill (' ') << endl;
-
-	//Instance name	
-	solFile << "#Instance: " << endl << fileName << endl;
-
-	Solution *mySolution;
-	if(parameters->solveByMIP()){		
-		if(solutions.size() > 0){
-			mySolution = (*solutions.begin());
-			solFile << *mySolution;
-		}else{
-			solFile << "No solution found. Final status was: " << status << endl;
-		}
-	}else{
-		mySolution = rootNode->getSolution();
-		solFile << *mySolution;
-	}
-	
-	//End of new solution
-	solFile << setw(80) << setfill('-') << "-" << setfill (' ') << endl;
-	solFile.close();
-	//--------------------------------------
-
-	//--------------------------------------
-	//STATISTICS FILE	
-	//--------------------------------------
-	//Verify if statistics file is empty
-	std::ifstream myFile("statistics.csv");
-	bool isEmpty = myFile.peek() == std::ifstream::traits_type::eof();
-	myFile.close();
-
-	//Save statistics
-	ofstream statFile;
-	statFile.open("statistics.csv", ios::out | ios::app);
-
-	//Header
-	if(isEmpty)
-		statFile << "File_Name,LB,UB,Gap,SP_Method,Exp_Nodes,Max_Tree_Height,Total_Routes,Integer,Time" << endl;
-	else
-		statFile << endl;
-
-	statFile << fileName << ","; //file Name
-	statFile << lb << ",";
-		
-	if(ZInc < 1e13)
-		statFile << ZInc << ",";
-	else
-		statFile << ",";
-
-	if(gap < 1e13)
-		statFile << gap << "%,";
-	else
-		statFile << ",";
-
-	statFile << getSpTypeName(spType) << ",";
-	statFile << exploredNodes << ",";
-	statFile << maxTreeHeight << ",";
-	statFile << routeCounter << ",";
-	if(isInt){
-		statFile << "Yes,";
-	}else{
-		statFile << "No,";
-	}
-	statFile << (double)(tEnd - tStart)/CLOCKS_PER_SEC << "s" ; //Time
-
-	statFile.close();
-#endif
-
 	return status;
 }
 
@@ -398,13 +252,14 @@ void Solver::buildInitialModel()
 {
 	Job *job;
 	Equipment *e;
-	int tInit, tEnd;
-	int cont;
+		
+	int cont;	
+	int contw = 0;
+	int contId = 0;
 	int contVars = 0;
 	int contCons = 0;
-
-	int contIdCons = 0;
-
+	int tInit, tEnd;
+	
 	cout << "*******************" << endl;
 	cout << "Creating ovf model." << endl;
 	cout << "*******************" << endl;
@@ -429,7 +284,7 @@ void Solver::buildInitialModel()
 			y.setStartJob(j);
 			y.setTime(t);
 
-			//coeff = (double)((data->minDistance/(data->horizonLength)) * t);
+			//coeff = (double)(10*(data->minDistance/(data->horizonLength)) * t);
 
 			vHash[y] = true;
 			model->addVar(0.0,1.0,coeff,GRB_INTEGER,y.toString());
@@ -440,7 +295,6 @@ void Solver::buildInitialModel()
 	contVars += cont;
 
 	//xVars and wVars
-	int contw = 0;
 	cont = 0;
 	cout << "Creating x and w vars." << endl;
 	queue<Vertex*> myQueue;
@@ -490,7 +344,7 @@ void Solver::buildInitialModel()
 
 						if(vHash.find(x) == vHash.end()){
 							vHash[x] = true;
-							model->addVar(0.0,1.0,transitionTime,GRB_INTEGER, x.toString());
+							model->addVar(0.0,GRB_INFINITY,transitionTime,GRB_INTEGER, x.toString());
 							data->addEdge(o->getJob(), d->getJob(), o->getTime(), d->getTime(),transitionTime);
 							cont++;
 						}					
@@ -503,8 +357,8 @@ void Solver::buildInitialModel()
 
 						if(vHash.find(w) == vHash.end()){
 							vHash[w] = true;
-							model->addVar(0.0,1.0,0.0,GRB_INTEGER,w.toString());							
-							data->addEdge(o->getJob(), o->getJob(), o->getTime(), o->getTime() + 1,0.0);
+							model->addVar(0.0,GRB_INFINITY,0.0,GRB_INTEGER,w.toString());								
+							//data->addEdge(o->getJob(), o->getJob(), o->getTime(), o->getTime() + 1,0);
 							contw++;
 						}
 					}
@@ -585,7 +439,7 @@ void Solver::buildInitialModel()
 				c1.setStartJob(j);
 				c1.setTime(t);
 				c1.setEquipmentType(eqType);
-				c1.setId(contIdCons++);
+				c1.setId(contId);
 
 				if(cHash.find(c1) == cHash.end()){
 					GRBLinExpr expr = 0;				
@@ -609,11 +463,11 @@ void Solver::buildInitialModel()
 					cHash[c1] = true;
 					model->addConstr(expr == 0, c1.toString());
 					cont ++;
+					contId++;
 				}
 			}
 		}
 	}
-	eDualVars = cont;
 	contCons += cont;
 	cout << "Total synchronization constraints created: " << cont << endl;
 
@@ -626,7 +480,7 @@ void Solver::buildInitialModel()
 		c1.reset();
 		c1.setType(C_OVF_FLOW_INIT);
 		c1.setEquipmentType(eqType);
-		c1.setId(contIdCons++);
+		c1.setId(contId);
 
 		if(cHash.find(c1) != cHash.end()) continue;
 
@@ -649,6 +503,7 @@ void Solver::buildInitialModel()
 		cHash[c1] = true;
 		model->addConstr(expr == e->getNumMachines(), c1.toString());
 		cont ++;
+		contId++;
 	}
 	contCons += cont;
 	cout << "Total flow init constraints created: " << cont << endl;
@@ -673,7 +528,7 @@ void Solver::buildInitialModel()
 				c1.setStartJob(j);
 				c1.setTime(t);
 				c1.setEquipmentType(eqType);
-				c1.setId(contIdCons++);
+				c1.setId(contId);
 
 				if(cHash.find(c1) == cHash.end()){
 					GRBLinExpr expr = 0;
@@ -682,7 +537,7 @@ void Solver::buildInitialModel()
 					it = data->problemNetwork[j][t]->getAdjacenceList(eqType).begin();
 					eit = data->problemNetwork[j][t]->getAdjacenceList(eqType).end();
 
-					for(; it != eit; it++){
+					while(it != eit){
 						int i = (*it)->getJob();
 						
 						if(i != j){ //transition
@@ -711,13 +566,15 @@ void Solver::buildInitialModel()
 								expr += var1;
 							}
 						}
+
+						it++;
 					}
 
 					//Entering variaveis (-)
 					it = data->problemNetwork[j][t]->getIncidenceList(eqType).begin();
 					eit = data->problemNetwork[j][t]->getIncidenceList(eqType).end();
 
-					for(; it != eit; it++){
+					while(it != eit){
 						int i = (*it)->getJob();
 						int t1 = (*it)->getTime();
 
@@ -747,11 +604,14 @@ void Solver::buildInitialModel()
 								expr -= var1;
 							}
 						}
+
+						it++;
 					}
 
 					cHash[c1] = true;
 					model->addConstr(expr == 0, c1.toString());
 					cont ++; 
+					contId++;
 				}
 			}
 		}
@@ -760,170 +620,11 @@ void Solver::buildInitialModel()
 	cout << "Total flow constraints created: " << cont << endl;
 	cout << "Total constraints in OVF: " << contCons << endl;
 
+	numDuals = contId;
 	model->update();
 	//----------------------
 	
 	model->write("modelo_OVF.lp");
-}
-
-void Solver::buildDWM()
-{		
-	int cont;
-	int contVars = 0;
-	int contCons = 0;
-
-	GRBVar var1, var2;
-	GRBConstr cons;
-
-	Constraint c;
-	ConstraintHash::iterator cit;
-
-	Variable v, b, f;
-
-	cout << "****************************" << endl;
-	cout << "Creating dwm model." << endl;
-	cout << "****************************" << endl;
-
-	//Relax integer variables
-	
-	cout << "Deleting w, x (ovf) variables, relaxing y variaveis." << endl;
-	//Delete w variables
-	VariableHash::iterator vit = vHash.begin();
-	while(vit != vHash.end()){
-		v = vit->first;
-		var1 = model->getVarByName(v.toString());
-
-		if(v.getType() == V_W){ 
-			model->remove(var1);
-			vit = vHash.erase(vit);
-		}else if(v.getType() == V_X){			 
-			model->remove(var1);
-			vit = vHash.erase(vit); 
-		}else if(v.getType() == V_Y){
-			//Relax integer variable
-			var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);
-			vit++;
-		}		
-	}
-
-	cont = 0;
-	cout << "Creating b auxilaty variables." << endl;
-	//Create bAux vars
-	for(int j=0; j< data->numJobs; j++){
-		b.reset();
-		b.setType(V_BAUX);
-		b.setStartJob(j);
-
-		if(vHash.find(b) == vHash.end()){
-			vHash[b] = true;
-			model->addVar(0.0,1.0,bigM,GRB_CONTINUOUS,b.toString());
-			cont ++;
-		}
-	}
-	contVars += cont;
-	cout << "Total b aux variables created: " << cont << endl;
-
-	
-	cont = 0;
-	cout << "Creating f auxiliary variables." << endl;
-	//fAuxVar
-	for(int eqType=0; eqType < data->numEquipments; eqType++){
-		Equipment *e = data->equipments[eqType];
-
-		f.reset();
-		f.setType(V_FAUX);
-		f.setEquipmentTipe(eqType);
-
-		vHash[f] = true;
-		model->addVar(0.0,e->getNumMachines(),bigM,GRB_CONTINUOUS, f.toString());
-		cont ++;
-	}
-	contVars += cont;
-	cout << "Total f aux variables created: " << cont << endl;
-	cout << "Total auxiliary variables created in dwm: " << contVars << endl;
-
-	model->update();
-	//----------------------
-
-	//-----------------------------
-	//ERASE SUBPROBLEM CONSTRAINTS
-	//-----------------------------	
-	cout << "Erasing subproblem constraints (flow)." << endl;
-	cit = cHash.begin();
-	while(cit != cHash.end()){
-		c = cit->first;
-
-		if(c.getType() == C_OVF_FLOW || c.getType() == C_OVF_FLOW_INIT){
-			cons = model->getConstrByName(c.toString());
-			cHash.erase(cit++);
-			model->remove(cons);
-		}else{
-			cit++;
-		}
-	}
-	model->update();
-	//----------------------
-
-	//----------------------
-	//CREATE CONSTRAINTS
-	//----------------------
-	cont = 0;
-	cout << "Creating convexity constraints." << endl;
-	//Route number constraints
-	for(int eqType=0; eqType < data->numEquipments; eqType++){
-		Equipment *e = data->equipments[eqType];
-		
-		GRBLinExpr expr = 0;
-
-		c.reset();
-		c.setType(C_CONV);
-		c.setEquipmentType(eqType);
-		c.setId(cont);
-
-		f.reset();
-		f.setType(V_FAUX);
-		f.setEquipmentTipe(eqType);
-
-		if(cHash.find(c) == cHash.end() && vHash.find(f) != vHash.end()){
-			var1 = model->getVarByName(f.toString());
-			expr += var1;
-			cHash[c] = true;
-			model->addConstr(expr == e->getNumMachines(), c.toString());
-			cont++;
-		}
-	}
-	cDualVars = cont;
-	contCons += cont;
-	cout << "Convexity constraints created: " << cont << endl;
-	
-
-	//Add auxiliary variables to cover constraints
-	cont = 0;
-	cout << "Adding b aux vaiables to cover constraints." << endl;
-	for(int j=0; j<data->numJobs; j++){
-		c.reset();
-		c.setType(C_COVER);
-		c.setStartJob(j);
-
-		v.reset();
-		v.setType(V_BAUX);
-		v.setStartJob(j);
-
-		if(cHash.find(c) != cHash.end() && vHash.find(v) != vHash.end()){
-			var1 = model->getVarByName(v.toString());
-			cons = model->getConstrByName(c.toString());
-			model->chgCoeff(cons,var1,1.0);
-			cont++;
-		}			
-	}
-	cout << "B aux vars created: " << cont << endl;
-	cout << "Total constraints specific to the DWM: " << contCons << endl;
-
-	model->update();
-	//----------------------
-
-	model->write("modelo_DWM.lp");
-	getchar();
 }
 
 void Solver::buildDWMForExtendedFormulations()
@@ -953,15 +654,15 @@ void Solver::buildDWMForExtendedFormulations()
 		var1 = model->getVarByName(v.toString());
 
 		if(v.getType() == V_W){ 
-			model->remove(var1);
-			vit = vHash.erase(vit);
+			var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);
+			vit++;
+		}else if(v.getType() == V_X){	
 			/*var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);
-			vit++;*/
-		}else if(v.getType() == V_X){			 
+			var1.set(GRB_DoubleAttr_UB,0.0);
+			vit++;		*/	
 			model->remove(var1);
 			vit = vHash.erase(vit); 
 		}else if(v.getType() == V_Y){
-			//Relax integer variable
 			var1.set(GRB_CharAttr_VType, GRB_CONTINUOUS);
 			vit++;
 		}		
@@ -969,6 +670,7 @@ void Solver::buildDWMForExtendedFormulations()
 
 	cont = 0;
 	cout << "Creating b auxilaty variables." << endl;
+
 	//Create bAux vars
 	for(int j=1; j< data->numJobs; j++){
 		b.reset();
@@ -987,6 +689,7 @@ void Solver::buildDWMForExtendedFormulations()
 	
 	cont = 0;
 	cout << "Creating f auxiliary variables." << endl;
+
 	//fAuxVar
 	for(int eqType=0; eqType < data->numEquipments; eqType++){
 		Equipment *e = data->equipments[eqType];
@@ -1004,25 +707,6 @@ void Solver::buildDWMForExtendedFormulations()
 	cout << "Total auxiliary variables created in dwm: " << contVars << endl;
 
 	model->update();
-	//----------------------
-
-	//-----------------------------
-	//ERASE flow CONSTRAINTS
-	//-----------------------------	
-	/*cout << "Erasing flow conservation constraints." << endl;
-	cit = cHash.begin();
-	while(cit != cHash.end()){
-		c = cit->first;
-
-		if(c.getType() == C_OVF_FLOW){
-			cons = model->getConstrByName(c.toString());
-			cHash.erase(cit++);
-			model->remove(cons);
-		}else{
-			cit++;
-		}
-	}
-	model->update();*/
 	//----------------------
 
 	//Add auxiliary variables to constraints
@@ -1047,7 +731,6 @@ void Solver::buildDWMForExtendedFormulations()
 			cont++;
 		}
 	}
-	cDualVars = cont;
 	contCons += cont;
 	cout << "Convexity constraints created: " << cont << endl;
 	
@@ -1084,26 +767,27 @@ void Solver::buildDWMForExtendedFormulations()
 
 int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 {
-	int status = GRB_INPROGRESS;
-	double Zlp = 1e13;
-	
+	int status = GRB_INPROGRESS;	
+
 	int rCount;
+	int iteration = 0;	
+	double Zlp = 1e13;
+
+	int contDeg = 0;
+	double prevRC = 0.0;
 	double minRouteCost = 0.0;
 
 	double lagrangeanBound = 0.0;
-	int fixatedVars;
-	int totalFixatedVars = 0;
-	bool tryToFixVars = true;
 
-	int iteration = 0;
+	bool tryToFix = false;
+	int fixatedVars = 0;
+	int totalFixatedVars = 0;
+
 	int printFrequency = (parameters->getPrintLevel() > 0)? 1 : 5;
 
-	//Reset subproblem solver and collapse vertices
-	spSolver->reset();
 	Route *myRoute;
 	vector<Route*> generatedRoutes = vector<Route*>();
 	vector<Route*>::iterator rit, eit;
-	//spSolver->collapseVertices();
 
 	//Dynamically solve the model by column generation.
 	bool end = false;
@@ -1112,34 +796,30 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 
 		clock_t currentTime = clock();
 		double timeSpent = (double)(currentTime - tStart)/CLOCKS_PER_SEC;
-		if(timeSpent > parameters->getTimeLimit())
+		if(timeSpent > parameters->getTimeLimit() && node->getNodeId() > 0)
 			return GRB_INFEASIBLE;
 
 		//Solve current model
 		iteration ++;
 		clock_t gurobiStart, gurobiEnd;
 		
-		/*node->getModel()->write("Test.lp");
-		getchar();*/
-		//node->getModel()->write("Test.lp");
 		gurobiStart = clock();
 		status = node->solve();
-		//node->printSolution();
-		//getchar();
 		gurobiEnd = clock();
-
-		cout << endl <<  separator.str();
-		cout << endl << "Solver elapsed time: " << (double)(gurobiEnd - gurobiStart)/CLOCKS_PER_SEC;
+		
+		if(parameters->getPrintLevel() > 0){
+			cout << endl <<  separator.str();
+			cout << endl << "Solver elapsed time: " << (double)(gurobiEnd - gurobiStart)/CLOCKS_PER_SEC;
+		}
 
 		if(status == GRB_OPTIMAL){
 			int sw = 0;		
 			
 			rCount = 0;
-			fixatedVars = 0;
 			double Zlp = node->getZLP();
 			lagrangeanBound = Zlp;
 
-			cout << endl << "Starting route generation..."; 
+			//cout << endl << "Starting route generation..."; 
 
 			clock_t spInit, spEnd;
 			spInit = clock();
@@ -1149,10 +829,7 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				Equipment *e = data->equipments[eqType];	
 				minRouteCost = 0.0;								
 				
-				spSolver->solve(node, eqType, 10);
-				if(spSolver->isInfeasible()){
-					return GRB_INFEASIBLE;
-				}
+				spSolver->solve(node, eqType);
 
 				//Verify that at least 1 route was generated
 				if(spSolver->routes.size() == 0) continue;
@@ -1161,29 +838,32 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				vector<Route*>::iterator itRoute = spSolver->routes.begin();
 				vector<Route*>::iterator eitRoute = spSolver->routes.end();
 
-				//if(parameters->getPrintLevel() > 0){
+				if(parameters->getPrintLevel() > 0){
 					cout << endl << endl << "Routes Generated for Equipment Type: " << eqType;
 					while(itRoute != eitRoute){
 						Route *spRoute = (*itRoute);					
 						cout << endl << spRoute->toString();
 						itRoute++;
 					}
-				//}
+				}
 
 				//Append routes to generated routes vector
 				minRouteCost = spSolver->routes[0]->getReducedCost();
 				minRC = min(minRC,minRouteCost);
 				generatedRoutes.insert(generatedRoutes.end(),spSolver->routes.begin(),spSolver->routes.end());
 				
-				cout << endl << "Minimum reduced cost found for Equipment Type " << eqType << ": " << minRouteCost;
+				//lagrangeanBound -= (e->getNumMachines() * minRouteCost);
 				
-				lagrangeanBound -= (e->getNumMachines() * minRouteCost);
+				if(parameters->getPrintLevel() > 0)
+					cout << endl << "Minimum reduced cost found for Equipment Type " << eqType << ": " << minRouteCost;
 			}
-			//getchar();
+					
+			if(parameters->getPrintLevel() > 1)
+				getchar();
 			spEnd = clock();
 
 			double spTimeSpent = (double)(spEnd - spInit)/CLOCKS_PER_SEC;
-			//if(parameters->getPrintLevel() > 0)
+			if(parameters->getPrintLevel() > 0)
 				cout << endl << "Consumed time generating routes: " << spTimeSpent << "s";
 
 			//If no routes where generated, the current lp solution is optimal
@@ -1192,6 +872,8 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 					if(node->getMaxPiDifference() <= parameters->getEpsilon()){
 						end = true;
 					}else{
+						//cout << endl << node->getMaxPiDifference();
+						//getchar();
 						cout << "No route found. Updating Pi" << endl;
 						node->updatePi();
 						continue;
@@ -1199,25 +881,20 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				}else{
 					end = true;
 				}
-			}else{
-				//fix variables by reduced cost.
-				/*if(!parameters->useDualStabilization()){
-					if(iteration % 10 == 0 || tryToFixVars){
-						fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
-						totalFixatedVars += fixatedVars;
-						if(fixatedVars)
-							tryToFixVars = true;
-						else
-							tryToFixVars = false;
-					}
+			}else{	
+				/*if((iteration > 50 && (iteration % 10 == 0)) || tryToFix){
+					fixatedVars = node->fixVarsByReducedCost(lagrangeanBound);
+					totalFixatedVars += fixatedVars;
+					if(!fixatedVars)
+						tryToFix = false;
+					else
+						tryToFix = true;
 				}*/
-				
+
 				//Add routes to the model
-				node->addColumns(generatedRoutes, routeCounter);
+				node->addColumns(generatedRoutes, totalRoutes);
 				rCount += generatedRoutes.size();
 					
-				//node->getModel()->write("Test.lp");
-				//getchar();
 				generatedRoutes.clear();
 			}
 
@@ -1226,10 +903,10 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				output << "| " << "Id: " << setw(4) << node->getNodeId() << " Unexp: " << setw(4) << treeSize << " Iter: " << setw(5) << iteration;
 				output << "| " << "Zlp: " << setw(7) << Zlp;
 				
-				if(lb < 1e13)
-					output << " LB: " << setw(7) << lb;
+				if(rootLB < 1e13)
+					output << " rootLB: " << setw(7) << rootLB;
 				else
-					output << " LB: " << setw(7) << "--";
+					output << " rootLB: " << setw(7) << "--";
 
 				if(ZInc < 1e13)
 					output << " UB: " << setw(7) << ZInc;
@@ -1241,14 +918,13 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 				else
 					output << " Gap: " << setw(7) << "--";
 
-				output << "| " << "Routes: " << setw(5) << rCount << "Total: " << setw(5) << routeCounter << " MinRC: " << setw(10) << minRC;
-				output << "| " << "LagBound: " << setw(10) << lagrangeanBound << " Fix: " << setw(4) << fixatedVars << " TFix: " << setw(5) << totalFixatedVars;
+				output << "| " << "Routes: " << setw(5) << rCount << "Total: " << setw(5) << totalRoutes << " MinRC: " << setw(10) << minRC;
+				//output << "| " << "LagBound: " << setw(10) << lagrangeanBound << " Fix: " << setw(4) << fixatedVars << " TFix: " << setw(5) << totalFixatedVars;
 				output << "| " << "Time: " << setw(5)  << (double)(clock() - tStart)/CLOCKS_PER_SEC << "s | ";
 
-				cout << endl << output.str() << endl;
+				cout << endl << output.str();
 			}
 		}else{ //INFEASIBLE
-			//node->getModel()->write("modelo_inf.lp");
 			cout << "Infeasible" << endl;
 			return GRB_INFEASIBLE;
 		}
@@ -1257,8 +933,10 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 	if(parameters->solveByMIP() == false)
 		isInt = node->isIntegerSolution();
 
-	if(node->getNodeId() == 0)
-		lb = node->getZLP();
+	if(node->getNodeId() == 0){
+		rootLB = node->getZLP();
+		rootRoutes = totalRoutes;
+	}
 
 	//if(parameters->getPrintLevel() > 0)
 		node->printSolution();
@@ -1270,7 +948,7 @@ int Solver::solveLPByColumnGeneration(Node *node, int treeSize)
 int Solver::BaP(Node *node)
 {	
 	int status = GRB_INPROGRESS;
-	exploredNodes = 0;
+	totalNodes = 0;
 	
 	vector<Node*> myStack = vector<Node*>();
 	myStack.push_back(node);
@@ -1291,21 +969,21 @@ int Solver::BaP(Node *node)
 
 		cout << separator.str();
 		if(parameters->getPrintLevel() > 0)
-			cout << "Starting column generation on node " << exploredNodes << endl;
+			cout << "Starting column generation on node " << totalNodes << endl;
 
-		currentNode->setNodeId(exploredNodes);
+		currentNode->setNodeId(totalNodes);
 		status = solveLPByColumnGeneration(currentNode, myStack.size());
-		exploredNodes ++;
+		totalNodes ++;
 
-		if(exploredNodes == 1)
+		if(totalNodes == 1)
 			currentNode->printSolution();
 
 		if(parameters->getPrintLevel() > 0)
-			cout << "Column generation on node " << exploredNodes << " completed." << endl;
+			cout << "Column generation on node " << totalNodes << " completed." << endl;
 			cout << separator.str();
 
 		if(status != GRB_OPTIMAL){
-			cout << "Node " << exploredNodes << " INFEASIBLE. " << endl;
+			cout << "Node " << totalNodes << " INFEASIBLE. " << endl;
 			delete currentNode;
 			continue;
 		}else{
@@ -1321,14 +999,14 @@ int Solver::BaP(Node *node)
 
 					solutions.insert(s);
 					ZInc = Zlp;
-					gap = (double)(ZInc / lb);
+					gap = (double)(ZInc / rootLB);
 
 					if(solutions.size() == parameters->getNumSolutions())
 						break; //quit bap with current solutions.
 				}
 				continue;
-			}else if(ceil(Zlp) >= ZInc && exploredNodes > 1){
-				cout << "Node " << exploredNodes << " PRUNED BY BOUND. " << ceil(Zlp) << " > " << ZInc << endl;
+			}else if(ceil(Zlp) >= ZInc && totalNodes > 1){
+				cout << "Node " << totalNodes << " PRUNED BY BOUND. " << ceil(Zlp) << " > " << ZInc << endl;
 				delete currentNode;
 				continue;
 			}
@@ -1360,9 +1038,6 @@ int Solver::BaP(Node *node)
 
 		myStack.push_back(nodeIzq);
 		myStack.push_back(nodeDer);
-
-		//update tree height
-		maxTreeHeight = max(nodeIzq->getTreeLevel(), maxTreeHeight);
 		
 		//parent node not needed anymore
 		delete currentNode;

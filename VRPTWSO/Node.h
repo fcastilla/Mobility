@@ -24,7 +24,7 @@ class Solution;
 class Node
 {
 public:
-	Node(int c, int e);
+	Node(int num);
 	Node(const Node &node);
 	~Node();
 	
@@ -33,23 +33,23 @@ public:
 	
 	VariableHash vHash;
 	ConstraintHash cHash;	
-	
-	int cDual, eDual;	
-	void updatePi();
+		
+	void updatePi();	
+	void toggleAlpha();
 	double getMaxPiDifference();
 
 	//Get Methods
 	GRBModel *getModel(){ return model; }
 	int getNodeId(){ return nodeId; }	
 	double getZLP(){ return Zlp; }
-	double getVarLB(Variable v);
 	int getRouteCount(){ return routeCount; }
 	int getTreeLevel() const { return treeLevel; }
-	double getDualVal(int j, int t, int e);
 
 	double getArcReducedCost(int s, int d, int sTime, int dTime, int e, double cost);
 	double getRouteUseReducedCost(int eqType);
 
+	double getNumDuals() const { return numDuals; }
+	void unrelaxModel();
 
 	//Set Methods
 	void setNodeId(int id){ nodeId = id; }
@@ -69,6 +69,8 @@ public:
 	int cleanNode(int maxRoutes);
 	void printSolution();
 
+	void setNumDuals(int num){ numDuals = num; }
+
 	double verifyRouteCost(Route *r);
 	Solution *getSolution();
 
@@ -83,18 +85,21 @@ private:
 	int routeCount;
 	int treeLevel;
 
-	void updateVariables(int status);
-	
-	//dual stabilization	
-	double alpha;
+	//dual multipliers
+	double alpha, validAlpha, defaultAlpha;
+	int numDuals;
 	void initializePi();
-	void getCurrentPi();
 	void calculateAlphaPi();
+	void getDualMultipliers();
 
-	valarray<double> alphaPi_e;
-	valarray<double> feasiblePi_e; //for explicit master constraints
-	valarray<double> currentPi_e; //for explicit master constraints
-	valarray<double> alphaPi_c;
-	valarray<double> feasiblePi_c; //for convex constraints
-	valarray<double> currentPi_c; //for convex constraints
+	/*vector<valarray<double>> currentPi;
+	vector<valarray<double>> feasiblePi;
+	vector<valarray<double*/
+
+	valarray<double> currentPi;
+	valarray<double> alphaPi;
+	valarray<double> feasiblePi;
+
+	void updateVariables(int status);
+
 };

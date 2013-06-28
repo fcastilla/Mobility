@@ -65,6 +65,7 @@ Variable& Variable::operator=(const Variable& var)
 	this->eqType = var.getEquipmentType();
 	this->routeNumber = var.getRouteNumber();
 	this->route = var.getRoute();
+	*(this->rc) = var.getReducedCost();
 
 	return *this;
 }

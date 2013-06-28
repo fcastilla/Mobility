@@ -28,7 +28,7 @@ class Route;
 class Solver
 {
 public:
-	Solver(ProblemData *d, int type);
+	Solver(ProblemData *d);
 	~Solver();
 
 	//Model object and enviroment
@@ -45,38 +45,37 @@ public:
 private:
 	ProblemData *data;	
 	GlobalParameters *parameters;
-	int spType;
 	SubproblemSolver *spSolver;
 	set<Solution*> solutions;
 
 	stringstream separator;
 
 	double bigM;
+	int numDuals;
 
 	//Global 
-	double lb;
 	double ZInc;
 	double gap;
-	int eDualVars;
-	int cDualVars;
 	bool isInt;
 
-	//Statistics
-	int routeCounter;
+	//Statistics Root node	
+	double rootLB;
+	double rootTime;
+	double rootRoutes;
+
+	//General statistics
+	int numVars;
+	double mipLB;
+	int totalRoutes;
 	int totalNodes;
-	int exploredNodes;
-	int maxTreeHeight;
+	double totalTime;
 	clock_t tStart, tEnd;
 
 	//Methods
 	void buildProblemNetwork();
 	void buildInitialModel();
-
-	void buildDWM();
 	void buildDWMForExtendedFormulations();
-	void collapseSubproblemVertices();
 	
 	int BaP(Node *node);
-	int getFeasibleSolution();
 	int solveLPByColumnGeneration(Node *node, int treeSize);
 };

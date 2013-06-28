@@ -29,15 +29,13 @@ class SubproblemSolver
 {
 	
 public:
-	SubproblemSolver(ProblemData * d, SubproblemType m);
+	SubproblemSolver(ProblemData * d);
 	~SubproblemSolver();
 
 	vector<Route*> routes;
 
 	void reset();
-	void solve(Node *node, int eqType, int maxRoutes);
-	void collapseVertices(Node *node, int eqType);
-	bool isInfeasible(){ return infeasible; }	
+	void solve(Node *node, int eqType);
 
 private:
 	ProblemData * data;
@@ -45,11 +43,9 @@ private:
 	GlobalParameters *parameters;
 
 	double infinityValue;
-	bool infeasible;
 
 	vector<vector<bool>> visited;
 	vector<vector<Bucket*>> fMatrix;
-	vector<int> fixatedVars;
 
 };
 

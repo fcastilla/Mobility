@@ -1,5 +1,10 @@
 #include "Bucket.h"
 
+bool isContained(Label *label1, Label *label2){
+	if ((label1->unreachable & label2->unreachable) != label1->unreachable) return false;
+	return true;
+}
+
 //Vertex
 Vertex::Vertex(int numEq) : job(-1), time(-1)
 {
@@ -59,69 +64,6 @@ void Bucket::reset()
 	successor = nullptr; 
 }
 
-//QROUTE BUCKET
-void QRouteBucket::evaluate(set<Label*,LabelComparator> oLabels, double rCost, bool fix)
-{
-	//Create label
-	Label *myLabel = new Label(job,time);
-
-	//Evaluate best label of oLabels (if such exist)
-	if(oLabels.size() > 0){
-		Label *pLabel = (*oLabels.begin());
-
-		//set label cost
-		myLabel->setCost(pLabel->getCost() + rCost);
-		myLabel->setPredecessor(pLabel);
-		myLabel->setFixed(fix);
-	}
-
-	//Add the route
-	pair<set<Label*,LabelComparator>::iterator,bool> success;
-	success = labels.insert(myLabel);
-	if(success.second == false){
-		delete myLabel;
-	}
-
-	//Mantain the label structure of propper size
-	if(labels.size() > maxSize){
-		set<Label*,LabelComparator>::iterator it = labels.end();
-		--it;
-		Label *tempLabel = (*it);
-		labels.erase(it);
-		delete tempLabel;
-	}
-
-	//Evaluate best label of oLabels (if such exist)
-	//if(oLabels.size() > 0){
-	//	Label *pLabel = oLabels[0];
-
-	//	//set label cost
-	//	myLabel->setCost(pLabel->getCost() + rCost);
-	//	myLabel->setPredecessor(pLabel);
-	//	myLabel->setFixed(fix);
-	//}
-
-	////Dominance Check (same bucket)
-	//if(labels.size() == 0)
-	//	labels.push_back(myLabel);
-	//else
-	//{
-	//	Label *bestLabel = labels[0];
-	//	if(*myLabel < *bestLabel)
-	//	{
-	//		labels[0] = myLabel;
-	//		delete bestLabel;
-	//	}			
-	//}
-}
-
-Label* QRouteBucket::getBestLabel()
-{
-	if(labels.size() > 0)
-		return *labels.begin();
-	return nullptr;
-}
-
 //QROUTENOLOOP BUCKET
 void QRouteNoLoopBucket::evaluate(set<Label*,LabelComparator> oLabels, double rCost, bool fix)
 {
@@ -141,9 +83,9 @@ void QRouteNoLoopBucket::evaluate(set<Label*,LabelComparator> oLabels, double rC
 
 		//No Loop at this point 		
 		myLabel->setCost(pLabel->getCost() + rCost);
-		//myLabel->vertexSet = pLabel->vertexSet;
+		//myLabel->unreachable = pLabel->unreachable;
+		//myLabel->unreachable.set(job);
 
-		myLabel->setTimePredecessor(pLabel);
 		if(pLabel->getJob() != job)
 			myLabel->setPredecessor(pLabel);
 		else
@@ -171,8 +113,6 @@ void QRouteNoLoopBucket::evaluate(set<Label*,LabelComparator> oLabels, double rC
 		delete myLabel;
 	}
 
-	//labels.insert(itLabel, myLabel);
-
 	////Verificar se o label domina a outro que já esteja no bucket
 	//while(itLabel != labels.end()){
 	//	if(isContained(myLabel, *itLabel)){
@@ -192,55 +132,6 @@ void QRouteNoLoopBucket::evaluate(set<Label*,LabelComparator> oLabels, double rC
 		delete tempLabel;
 	}
 
-	////Get best label of predecessor
-	//int pSize = oLabels.size() -1;
-	//for(int i=0; i < 2; i++){
-	//	if(i > pSize) break;
-
-	//	Label *pLabel = oLabels[i];
-	//	Label *predecessor = pLabel->getPredecessor();
-	//	//Avoid Loop
-	//	if(job != 0){
-	//		if(predecessor != nullptr && predecessor->getJob() == job) continue;
-	//	}
-	//	//No Loop at this point 		
-	//	myLabel->setCost(pLabel->getCost() + rCost);
-	//	if(pLabel->getJob() != job)
-	//		myLabel->setPredecessor(pLabel);
-	//	else
-	//		myLabel->setPredecessor(predecessor);
-	//	myLabel->setFixed(fix);
-
-	//	break;
-	//}
-
-	//Dominance Check (same bucket)
-	/*int numLabels = labels.size();
-	if(numLabels == 0){
-		labels.push_back(myLabel);
-	}else if(numLabels == 1){
-		labels.resize(2);
-		if(myLabel->getCost() < labels[0]->getCost()){
-			labels[1] = labels[0];
-			labels[0] = myLabel;
-		}else{
-			labels[1] = myLabel;
-		}
-	}else if(numLabels == 2){
-		if(myLabel->getCost() < labels[0]->getCost()){
-			delete labels[1];
-			labels[1] = labels[0];
-			labels[0] = myLabel;
-		}else if(myLabel->getCost() < labels[1]->getCost()){
-			delete labels[1];
-			labels[1] = myLabel;
-		}else{
-			delete myLabel;
-		}
-	}else{
-		delete myLabel;
-		labels.resize(2);
-	}*/
 }
 
 Label* QRouteNoLoopBucket::getBestLabel()

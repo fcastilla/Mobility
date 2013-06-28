@@ -88,11 +88,11 @@ public:
 class Label
 {
 public:
-	Label() : job(0), time(0), cost(0.0), predecessor(nullptr), t_predecessor(nullptr), fixed(false) { }
-	Label(int j, int t) : job(j), time(t), cost(1e13), predecessor(nullptr), t_predecessor(nullptr), fixed(false) { }
-	Label(int j, int t, double c) : job(j), time(t), cost(c), predecessor(nullptr), t_predecessor(nullptr), fixed(false) {  }
-	Label(int j, int t, double c, Label *p) : job(j), time(t), cost(c), predecessor(p), t_predecessor(nullptr), fixed(false) {  }
-	~Label(){ predecessor = nullptr; t_predecessor =nullptr; }
+	Label() : job(0), time(0), cost(0.0), predecessor(nullptr),fixed(false) { }
+	Label(int j, int t) : job(j), time(t), cost(1e13), predecessor(nullptr), fixed(false) { }
+	Label(int j, int t, double c) : job(j), time(t), cost(c), predecessor(nullptr), fixed(false) {  }
+	Label(int j, int t, double c, Label *p) : job(j), time(t), cost(c), predecessor(p),fixed(false) {  }
+	~Label(){ predecessor = nullptr;}
 	
 
 	//GET METHODS
@@ -100,7 +100,6 @@ public:
 	int getTime() const { return time; }
 	double getCost() const { return cost; }
 	Label *getPredecessor(){ return predecessor; }
-	Label *getTimePredecessor(){ return t_predecessor; }
 	bool isFixed() const{ return fixed; }
 
 	//SET METHODS
@@ -108,8 +107,9 @@ public:
 	void setTime(int t){ time = t; }
 	void setCost(double c){ cost = c; }
 	void setPredecessor(Label * p){ predecessor = p; }
-	void setTimePredecessor(Label *p){ t_predecessor = p; }
 	void setFixed(bool f){ fixed = f; }
+
+	std::bitset<51> unreachable;
 
 	bool operator<(const Label& other) const;
 
@@ -118,7 +118,7 @@ private:
 	int time;
 	double cost;
 	bool fixed;
-	Label *predecessor, *t_predecessor;
+	Label *predecessor;
 };
 
 class LabelComparator
@@ -176,21 +176,6 @@ protected:
 	set<Label*,LabelComparator> labels;
 	Bucket *successor;
 	GlobalParameters *parameters;
-};
-
-class QRouteBucket : public Bucket
-{
-public:
-	QRouteBucket(int size) { 
-		maxSize = size;
-		successor = nullptr;
-		parameters = GlobalParameters::getInstance(); 
-		labels = set<Label*,LabelComparator>();
-	}
-
-	//Interface methods
-	void evaluate(set<Label*,LabelComparator> oLabels, double rCost, bool fix);
-	Label *getBestLabel();
 };
 
 class QRouteNoLoopBucket : public Bucket
